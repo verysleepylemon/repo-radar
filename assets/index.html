@@ -126,6 +126,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
 .ic-vip   { background: rgba(163,113,247,.15); }
 .ic-trend { background: rgba(63,185,80,.15); }
 .ic-alert { background: rgba(227,179,65,.15); }
+.ic-secret { background: rgba(88,166,255,.15); }
 .item-body { flex: 1; min-width: 0; }
 .item-title {
   font-size: 13px; font-weight: 500; color: var(--fg); line-height: 1.4;
@@ -264,6 +265,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <button class="tab-btn" data-tab="vip" onclick="switchTab('vip')">🧬 VIP Feed <span class="tab-cnt" id="cnt-vip">…</span></button>
       <button class="tab-btn" data-tab="trending" onclick="switchTab('trending')">🔥 Trending <span class="tab-cnt" id="cnt-trending">…</span></button>
       <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts')">🚨 Alerts <span class="tab-cnt" id="cnt-alerts">0</span></button>
+      <button class="tab-btn" data-tab="secrets" onclick="switchTab('secrets')">🔑 Secrets <span class="tab-cnt" id="cnt-secrets" style="background:rgba(248,113,113,.15);color:#f85149">0</span></button>
     </div>
     <div class="gh-nav-r">
       <span class="gh-time">↺ <strong><span id="cd">60</span>s</strong> &nbsp;·&nbsp; <span id="ts">loading…</span></span>
@@ -294,6 +296,11 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
     <div id="tab-alerts" class="tab-panel">
       <div class="list-hdr"><span>🚨</span><h2>Recent Alerts</h2><span class="list-cnt-b" id="alert-cnt-h">…</span><span class="list-src">repo-radar watch loop</span></div>
       <div id="alert-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
+    </div>
+    <!-- Secrets -->
+    <div id="tab-secrets" class="tab-panel">
+      <div class="list-hdr"><span>🔑</span><h2>Secret / Key Leaks</h2><span class="list-cnt-b" id="secret-cnt-h">0</span><span class="list-src">GitHub Events · real-time scan · responsible disclosure</span></div>
+      <div id="secret-list"><div class="gh-loading"><div class="gh-spin"></div>Scanning GitHub Events…</div></div>
     </div>
   </div>
 
@@ -477,9 +484,48 @@ async function loadAlerts() {
     el.innerHTML = alertData.length ? alertData.map((it,i)=>renderAlertCard(it,i)).join('') : `<div class="gh-empty"><div class="gh-empty-ico">✅</div><p>No alerts yet</p></div>`;
   } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
 }
+
+/* ── Secrets ── */
+let secretData = [];
+function sevLbl(s) {
+  if (s==='critical') return `<span class="lbl lbl-red">⚠ CRIT</span>`;
+  if (s==='high')     return `<span class="lbl lbl-orange">↑ HIGH</span>`;
+  return `<span class="lbl lbl-gray">MED</span>`;
+}
+function renderSecretCard(f, idx) {
+  return `<div class="item-row" onclick="selSecret(this,${idx})"><div class="item-ic ic-secret">🔑</div><div class="item-body"><div class="item-title">${E(f.secret_type)} in ${E(f.repo)}</div><div class="item-meta"><span>📄 ${E(f.file_path)}</span>${f.line_number?`<span>L${f.line_number}</span>`:''}<span>${ago(f.detected_at)}</span></div><div class="item-labels">${sevLbl(f.severity)}<span class="lbl lbl-gray">${E(f.commit_sha)}</span></div></div></div>`;
+}
+function renderSecretDetail(f) {
+  const disclosureNote = `Hi,\n\nI detected a potentially exposed credential in your repository using automated scanning.\n\nType: ${f.secret_type}\nFile: ${f.file_path} (line ~${f.line_number||'?'})\nCommit: ${f.commit_url}\n\nPlease rotate this credential immediately if it is real.\nI have NOT stored or used the actual key — the value was masked during detection.\n\nThis is a responsible disclosure via repo-radar.`;
+  return `<div class="d-top"><div class="d-icon ic-secret" style="background:rgba(88,166,255,.15)">🔑</div><div class="d-title-g"><div class="d-title">${E(f.secret_type)}</div><div class="d-labels">${sevLbl(f.severity)}<span class="lbl lbl-blue">${E(f.repo)}</span></div></div></div>
+<div class="d-desc">A <strong>${E(f.secret_type)}</strong> was found in a pushed commit. The value is <strong>masked</strong> — only first/last 4 chars shown. Notify the owner using the button below.</div>
+<div class="d-sec"><div class="d-sec-title">Detection</div><table class="meta-tbl"><tr><td>Repository</td><td><a href="${E(f.repo_url)}" target="_blank" rel="noopener">${E(f.repo)}</a></td></tr><tr><td>File</td><td>${E(f.file_path)}${f.line_number?' : L'+f.line_number:''}</td></tr><tr><td>Commit</td><td><a href="${E(f.commit_url)}" target="_blank" rel="noopener">${E(f.commit_sha)}</a></td></tr><tr><td>Detected</td><td>${ago(f.detected_at)}</td></tr><tr><td>Owner</td><td><a href="https://github.com/${E(f.owner)}" target="_blank" rel="noopener">${E(f.owner)}</a></td></tr></table></div>
+<div class="d-sec"><div class="d-sec-title">Masked Value (preview only)</div><div class="code-block"><div class="code-hdr"><span>masked • never the real value</span></div><div class="code-body"><pre style="color:var(--red)">${E(f.preview)}</pre></div></div></div>
+<div class="d-sec"><div class="d-sec-title">Context Line (secret replaced with [REDACTED])</div><div class="code-block"><div class="code-hdr"><span>${E(f.file_path)}</span></div><div class="code-body"><pre>${E(f.context_line)}</pre></div></div></div>
+<div class="d-sec"><div class="d-sec-title">Responsible Disclosure Message <span style="font-size:10px;font-weight:400;text-transform:none;color:var(--fg-s)"> — copy and send to owner</span></div><div class="code-block"><div class="code-hdr"><span>message</span><button class="copy-btn" onclick="copyText(this, this.closest('.code-block').querySelector('pre').textContent)">📋 Copy</button></div><div class="code-body"><pre>${E(disclosureNote)}</pre></div></div></div>
+<div class="action-row"><a class="btn-p" href="${E(f.disclosure_url)}" target="_blank" rel="noopener">📨 Open Disclosure Issue ↗</a><a class="btn-s" href="${E(f.commit_url)}" target="_blank" rel="noopener">View Commit ↗</a><a class="btn-s" href="${E(f.repo_url)}" target="_blank" rel="noopener">View Repo ↗</a></div>`;
+}
+function selSecret(el, idx) { selectRow(el, renderSecretDetail(secretData[idx])); }
+async function loadSecrets() {
+  const el = document.getElementById('secret-list');
+  try {
+    const r = await fetch('/api/secrets'); if (!r.ok) throw new Error('HTTP '+r.status);
+    secretData = await r.json();
+    const cnt = secretData.length;
+    document.getElementById('cnt-secrets').textContent = cnt;
+    document.getElementById('secret-cnt-h').textContent = cnt;
+    if (cnt > 0) {
+      const b = document.querySelector('[data-tab="secrets"] .tab-cnt');
+      if (b) { b.style.background='rgba(248,113,113,.25)'; b.style.color='#f85149'; }
+    }
+    el.innerHTML = cnt
+      ? secretData.map((f,i)=>renderSecretCard(f,i)).join('')
+      : `<div class="gh-empty"><div class="gh-empty-ico">🔍</div><p>No secrets detected yet</p><p style="font-size:11px;color:var(--fg-s);margin-top:6px">Scanner polls GitHub Events every 30s</p></div>`;
+  } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
+}
 function doRefresh() {
   resetCD(); clearDetail();
-  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts()])
+  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets()])
     .then(() => { document.getElementById('ts').textContent = new Date().toLocaleTimeString(); });
 }
 let cdVal = 60;

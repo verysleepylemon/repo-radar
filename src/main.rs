@@ -8,6 +8,7 @@ use repo_radar::config::Config;
 use repo_radar::detector::Detector;
 use repo_radar::notifiers::NotifierSet;
 use repo_radar::redis_store::RedisStore;
+use repo_radar::secret_scanner::{SecretScanner, new_findings_buf};
 use repo_radar::sources::github::GitHubSource;
 use repo_radar::sources::hackernews::HackerNewsSource;
 use repo_radar::sources::reddit::RedditSource;
@@ -47,14 +48,21 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
+
+    let cli = Cli::parse();
+
+    // In serve mode don't pollute the terminal with INFO detector noise;
+    // everything is visible through the web dashboard instead.
+    let default_filter = match &cli.command {
+        Commands::Serve { .. } => "warn",
+        _ => "repo_radar=info",
+    };
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "repo_radar=info".into()),
+                .unwrap_or_else(|_| default_filter.into()),
         )
         .init();
-
-    let cli = Cli::parse();
 
     match cli.command {
         Commands::Watch => run_watch(cli.config).await?,
@@ -99,7 +107,8 @@ async fn run_watch(config: Config) -> Result<()> {
 }
 
 async fn run_serve(config: Config, port: u16) -> Result<()> {
-    let buf = web::new_alert_buf();
+    let buf      = web::new_alert_buf();
+    let findings = new_findings_buf();
 
     let store = RedisStore::try_connect(&config.redis_url).await;
     if store.is_none() {
@@ -118,7 +127,15 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
     let detector = Detector::new(config.clone(), store, notifiers)
         .with_alert_buf(buf.clone());
 
-    info!("repo-radar serving on port {port} — press Ctrl-C to stop");
+    // Build the secret scanner and run it as a background task.
+    let scanner_http = reqwest::Client::builder()
+        .user_agent("repo-radar/1.0 (github.com/lemwaiping123-eng/repo-radar)")
+        .timeout(std::time::Duration::from_secs(12))
+        .build()?;
+    let scanner = std::sync::Arc::new(SecretScanner::new(scanner_http, findings.clone())?);
+    tokio::spawn(async move { scanner.run_forever().await });
+
+    println!("🔭  repo-radar dashboard → http://localhost:{port}");
 
     let poll_gh  = Duration::from_secs(config.poll_interval_secs);
     let poll_hn  = Duration::from_secs(180);
@@ -128,7 +145,7 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
 
     // Run the web server concurrently with the watch loop.
     tokio::select! {
-        res = web::start_server(buf, port) => {
+        res = web::start_server(buf, findings, port) => {
             if let Err(e) = res { tracing::error!(error = %e, "Web server error"); }
         }
         res = run_watch_loop(config, detector, github, hn, reddit, rss, twitter,

@@ -22,6 +22,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
 use crate::detector::Alert;
+use crate::secret_scanner::{FindingsBuf, SecretFinding};
 
 pub const MAX_ALERT_BUF: usize = 100;
 
@@ -120,15 +121,16 @@ const AI_KEYWORDS: &[&str] = &[
 
 #[derive(Clone)]
 pub struct WebState {
-    pub alerts: AlertBuf,
-    pub http: reqwest::Client,
-    vip_cache:   Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
-    trend_cache: Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
-    leak_cache:  Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
+    pub alerts:   AlertBuf,
+    pub findings: FindingsBuf,
+    pub http:     reqwest::Client,
+    vip_cache:    Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
+    trend_cache:  Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
+    leak_cache:   Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
 }
 
 impl WebState {
-    pub fn new(alerts: AlertBuf) -> Self {
+    pub fn new(alerts: AlertBuf, findings: FindingsBuf) -> Self {
         let http = reqwest::Client::builder()
             .user_agent("repo-radar/1.0 (github.com/lemwaiping123-eng/repo-radar)")
             .timeout(Duration::from_secs(12))
@@ -136,13 +138,17 @@ impl WebState {
             .unwrap_or_default();
         Self {
             alerts,
+            findings,
             http,
-            vip_cache:   Arc::new(RwLock::new(None)),
-            trend_cache: Arc::new(RwLock::new(None)),
-            leak_cache:  Arc::new(RwLock::new(None)),
+            vip_cache:    Arc::new(RwLock::new(None)),
+            trend_cache:  Arc::new(RwLock::new(None)),
+            leak_cache:   Arc::new(RwLock::new(None)),
         }
     }
 }
+
+/// Expose the findings buffer constructor publicly so main.rs can create one.
+pub use crate::secret_scanner::new_findings_buf as new_findings_buf_alias;
 
 // ─── API types ────────────────────────────────────────────────────────────────
 
@@ -183,6 +189,11 @@ async fn serve_dashboard() -> Html<&'static str> {
 
 async fn api_alerts(State(s): State<Arc<WebState>>) -> Json<Vec<Alert>> {
     let g = s.alerts.read().await;
+    Json(g.iter().cloned().collect())
+}
+
+async fn api_secrets(State(s): State<Arc<WebState>>) -> Json<Vec<SecretFinding>> {
+    let g = s.findings.read().await;
     Json(g.iter().cloned().collect())
 }
 
@@ -435,15 +446,16 @@ async fn search_leaked_repos(http: &reqwest::Client) -> Result<Vec<LeakItem>> {
 // ─── Server startup ───────────────────────────────────────────────────────────
 
 /// Start the HTTP server.  Blocks until the server exits.
-pub async fn start_server(alerts: AlertBuf, port: u16) -> Result<()> {
-    let state = Arc::new(WebState::new(alerts));
+pub async fn start_server(alerts: AlertBuf, findings: FindingsBuf, port: u16) -> Result<()> {
+    let state = Arc::new(WebState::new(alerts, findings));
 
     let app = Router::new()
         .route("/", get(serve_dashboard))
-        .route("/api/alerts", get(api_alerts))
-        .route("/api/vip", get(api_vip))
-        .route("/api/trending", get(api_trending))
-        .route("/api/leaks",    get(api_leaks))
+        .route("/api/alerts",  get(api_alerts))
+        .route("/api/vip",     get(api_vip))
+        .route("/api/trending",get(api_trending))
+        .route("/api/leaks",   get(api_leaks))
+        .route("/api/secrets", get(api_secrets))
         .with_state(state)
         .layer(CorsLayer::permissive());
 

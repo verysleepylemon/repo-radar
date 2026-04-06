@@ -1209,6 +1209,7 @@ dependencies = [
  "futures",
  "mockito",
  "redis",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
