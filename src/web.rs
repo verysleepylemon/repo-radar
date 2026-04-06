@@ -72,6 +72,14 @@ const VIP_TERMS: &[&str] = &[
     "demis hassabis",
     "emad mostaque",
     "geoffrey hinton",
+    // AI product names that signal leak/release events
+    "claude code",
+    "claude-code",
+    "claw-code",
+    "claudecode",
+    "anthropic leak",
+    "openai codex leak",
+    "gemini cli",
 ];
 
 /// General AI / coding keywords — used to keep the feed on-topic.
@@ -115,6 +123,12 @@ const AI_KEYWORDS: &[&str] = &[
     "source map",
     "npm leak",
     "source code leaked",
+    "sourcescontent",
+    "bun sourcemap",
+    ".map files",
+    "source maps leaked",
+    "npmignore",
+    "revealed source",
 ];
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
@@ -128,6 +142,7 @@ pub struct WebState {
     vip_cache:       Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
     trend_cache:     Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
     leak_cache:      Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
+    npm_cache:       Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
 }
 
 impl WebState {
@@ -145,6 +160,7 @@ impl WebState {
             vip_cache:       Arc::new(RwLock::new(None)),
             trend_cache:     Arc::new(RwLock::new(None)),
             leak_cache:      Arc::new(RwLock::new(None)),
+            npm_cache:       Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -274,6 +290,31 @@ async fn api_leaks(State(s): State<Arc<WebState>>) -> Json<Vec<LeakItem>> {
             items.iter().map(|i| i.repo_url.clone()).collect();
         for item in found {
             if !existing.contains(&item.repo_url) {
+                items.push(item);
+            }
+        }
+    }
+    // Merge npm source-map monitor results (separate 15-min cache)
+    {
+        const NPM_TTL: Duration = Duration::from_secs(900);
+        let cached = {
+            let c = s.npm_cache.read().await;
+            c.as_ref().and_then(|(at, ref data)| {
+                if at.elapsed() < NPM_TTL { Some(data.clone()) } else { None }
+            })
+        };
+        let npm_items = match cached {
+            Some(v) => v,
+            None => {
+                let v = check_npm_source_leaks(&s.http).await.unwrap_or_default();
+                *s.npm_cache.write().await = Some((Instant::now(), v.clone()));
+                v
+            }
+        };
+        let existing_ids: std::collections::HashSet<String> =
+            items.iter().map(|i| i.id.clone()).collect();
+        for item in npm_items {
+            if !existing_ids.contains(&item.id) {
                 items.push(item);
             }
         }
@@ -470,6 +511,85 @@ async fn search_leaked_repos(http: &reqwest::Client) -> Result<Vec<LeakItem>> {
             })
         })
         .collect())
+}
+
+/// Query the npm registry for known AI CLI packages and flag bundles with
+/// anomalously large unpackedSize or file counts — a signal that TypeScript
+/// source maps (`sourcesContent`) may have been accidentally shipped.
+async fn check_npm_source_leaks(http: &reqwest::Client) -> Result<Vec<LeakItem>> {
+    // (package, publisher, suspicious_mb_threshold, suspicious_file_threshold)
+    const PACKAGES: &[(&str, &str, u64, u64)] = &[
+        ("@anthropic-ai/claude-code", "Anthropic",  25,  350),
+        ("@openai/codex",             "OpenAI",      25,  350),
+        ("@google-labs/gemini-cli",   "Google",      25,  350),
+        ("@mistralai/mistral-code",   "Mistral",     20,  300),
+    ];
+
+    let mut items = Vec::new();
+
+    for &(pkg, company, mb_thresh, file_thresh) in PACKAGES {
+        let url = format!("https://registry.npmjs.org/{pkg}");
+        let Ok(resp) = http
+            .get(&url)
+            .header("Accept", "application/json")
+            .send()
+            .await
+        else {
+            continue;
+        };
+        if !resp.status().is_success() {
+            continue;
+        }
+        let Ok(data) = resp.json::<serde_json::Value>().await else {
+            continue;
+        };
+        let Some(latest) = data["dist-tags"]["latest"].as_str().map(str::to_string) else {
+            continue;
+        };
+
+        let dist        = &data["versions"][latest.as_str()]["dist"];
+        let unpacked_mb = dist["unpackedSize"].as_u64().unwrap_or(0) / 1_048_576;
+        let file_count  = dist["fileCount"].as_u64().unwrap_or(0);
+
+        if unpacked_mb < mb_thresh && file_count < file_thresh {
+            continue;
+        }
+
+        let npm_url = format!("https://www.npmjs.com/package/{pkg}");
+        // npm pack creates <name>-<version>.tgz without the leading '@' or '/'
+        let slug = pkg.trim_start_matches('@').replace('/', "-");
+        items.push(LeakItem {
+            id:             format!("npm-{slug}"),
+            name:           format!("{company} {pkg} — unusually large bundle ({unpacked_mb} MB)"),
+            description:    format!(
+                "v{latest}: {unpacked_mb} MB unpacked / {file_count} files. \
+                 AI CLI tools of this size may embed TypeScript source maps \
+                 (sourcesContent field) that expose original source code. \
+                 The 2026 Claude Code leak followed exactly this pattern."
+            ),
+            leaked_at:      chrono::Utc::now().to_rfc3339(),
+            discoverer:     "repo-radar npm monitor".into(),
+            discoverer_url: npm_url.clone(),
+            root_cause:     format!(
+                "Package {pkg}@{latest} has {unpacked_mb} MB / {file_count} files. \
+                 Run: npm pack {pkg} && tar -tzf {slug}-{latest}.tgz | grep '\\.map$'"
+            ),
+            repo_url:       npm_url.clone(),
+            clone_cmd:      format!("npm pack {pkg} && tar -tzf {slug}-{latest}.tgz | grep '\\.map$'"),
+            npm_pkg:        Some(pkg.into()),
+            mirrors:        vec![
+                npm_url,
+                format!("https://registry.npmjs.org/{pkg}/{latest}"),
+            ],
+            tags:           vec!["NPM".into(), "Source Map Check".into(), company.into()],
+            language:       Some("TypeScript".into()),
+            confirmed:      false,
+            severity:       if unpacked_mb > 80 || file_count > 700 { "critical".into() }
+                            else { "high".into() },
+        });
+    }
+
+    Ok(items)
 }
 
 // ─── Server startup ───────────────────────────────────────────────────────────
