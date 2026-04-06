@@ -38,8 +38,7 @@ function Post-Comment {
         [int]   $Issue,
         [string]$Body
     )
-    $url     = "https://api.github.com/repos/$Repo/issues/$Issue/comments"
-    $payload = @{ body = $Body } | ConvertTo-Json -Depth 2
+    $url = "https://api.github.com/repos/$Repo/issues/$Issue/comments"
 
     if ($DryRun) {
         Write-Host "[DRY-RUN] Would post to $Repo #$Issue ($($Body.Length) chars)"
@@ -47,13 +46,15 @@ function Post-Comment {
     }
 
     try {
-        $result = Invoke-RestMethod `
-            -Uri         $url `
-            -Method      POST `
-            -Headers     $Headers `
-            -Body        $payload `
-            -ContentType "application/json"
-        Write-Host "[OK] $Repo #$Issue  ->  $($result.html_url)"
+        # Use WebClient with explicit UTF-8 to handle Unicode/long bodies reliably
+        $json  = (@{ body = $Body } | ConvertTo-Json -Compress)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $wc    = [System.Net.WebClient]::new()
+        foreach ($k in $Headers.Keys) { $wc.Headers.Add($k, $Headers[$k]) }
+        $wc.Headers["Content-Type"] = "application/json; charset=utf-8"
+        $resp  = $wc.UploadData($url, "POST", $bytes)
+        $html  = ([System.Text.Encoding]::UTF8.GetString($resp) | ConvertFrom-Json).html_url
+        Write-Host "[OK] $Repo #$Issue  ->  $html"
     }
     catch {
         $status = $_.Exception.Response.StatusCode.value__
