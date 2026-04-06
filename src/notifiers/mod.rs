@@ -1,7 +1,6 @@
 pub mod discord;
 pub mod telegram;
 
-use anyhow::Result;
 use tracing::warn;
 
 use crate::config::Config;

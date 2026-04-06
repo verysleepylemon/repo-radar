@@ -20,9 +20,9 @@ impl DiscordNotifier {
     }
 
     pub async fn send(&self, alert: &Alert) -> Result<()> {
-        let color = if alert.score >= 1000 {
+        let color = if alert.score >= 1000.0 {
             0xFF4444 // red — extreme spike
-        } else if alert.score >= 500 {
+        } else if alert.score >= 500.0 {
             0xFFAA00 // orange — hot
         } else {
             0x00BBFF // blue — notable
