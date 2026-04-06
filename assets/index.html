@@ -3,319 +3,493 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>repo-radar — AI Tech Monitor</title>
+<title>repo-radar — AI Intelligence Monitor</title>
 <style>
-/* === Reset & tokens === */
-*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── GitHub Dark palette ───────────────────────────── */
 :root {
-  --bg:    #06040e;
-  --bg2:   #0c0a18;
-  --panel: rgba(255,255,255,0.026);
-  --pb:    rgba(255,255,255,0.07);
-  --text:  #e2e8f0;
-  --t2:    #94a3b8;
-  --muted: #475569;
-  --v:     #a78bfa;  /* violet — VIP */
-  --g:     #34d399;  /* green  — GitHub */
-  --o:     #fb923c;  /* orange — high prio */
-  --r:     #f87171;  /* red    — critical */
-  --b:     #60a5fa;  /* blue   — normal */
-  --gold:  #fbbf24;
+  --gh-bg:       #0d1117;
+  --gh-canvas:   #161b22;
+  --gh-canvas2:  #1c2128;
+  --gh-border:   #30363d;
+  --gh-border-m: #21262d;
+  --fg:          #e6edf3;
+  --fg-m:        #8b949e;
+  --fg-s:        #6e7681;
+  --blue:        #58a6ff;
+  --green:       #3fb950;
+  --red:         #f85149;
+  --yellow:      #e3b341;
+  --purple:      #a371f7;
+  --orange:      #d29922;
 }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
 body {
-  font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
-  background: radial-gradient(ellipse at 25% 0%,rgba(88,60,160,.13) 0%,var(--bg) 65%);
-  background-color: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  font-size: 14px;
-  line-height: 1.6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
+               Helvetica, Arial, sans-serif;
+  background: var(--gh-bg); color: var(--fg);
+  font-size: 14px; line-height: 1.5;
 }
-a { color: inherit; text-decoration: none; }
-a:hover { color: var(--v); }
-code { font-size: 11px; color: #64748b; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { cursor: pointer; font-family: inherit; font-size: 12px; }
 
-/* === Header === */
-header {
-  background: rgba(6,4,14,.88);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid var(--pb);
-  position: sticky; top: 0; z-index: 100;
-  padding: 11px 0;
+/* ── Header ──────────────────────────── */
+.gh-header {
+  background: var(--gh-canvas);
+  border-bottom: 1px solid var(--gh-border);
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200; height: 52px;
 }
-.hd { max-width: 1640px; margin: 0 auto; padding: 0 20px;
-  display: flex; align-items: center; gap: 12px; }
-.logo {
-  font-size: 17px; font-weight: 700; letter-spacing: -.5px;
-  background: linear-gradient(120deg,#a78bfa,#60a5fa);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  background-clip: text;
+.gh-nav {
+  padding: 0 16px; display: flex; align-items: center; gap: 8px; height: 52px;
 }
-.live-b {
-  display: flex; align-items: center; gap: 5px;
-  background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.25);
-  border-radius: 100px; padding: 2px 8px;
-  font-size: 10px; font-weight: 700; color: var(--g); letter-spacing: .6px;
+.gh-logo {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 15px; font-weight: 600; color: var(--fg); flex-shrink: 0;
 }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--g);
-  animation: blink 2s ease-in-out infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
-.hd-r { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-.hd-info { font-size: 11px; color: var(--muted); }
-.hd-info strong { color: var(--t2); }
-.btn-r {
-  background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.22);
-  color: var(--v); padding: 5px 12px; border-radius: 6px; cursor: pointer;
-  font-size: 11px; font-weight: 600; transition: background .15s, border-color .15s;
+.live-pill {
+  display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700;
+  background: rgba(63,185,80,.1); border: 1px solid rgba(63,185,80,.25);
+  color: var(--green); padding: 2px 7px; border-radius: 20px; flex-shrink: 0;
 }
-.btn-r:hover { background: rgba(167,139,250,.2); border-color: rgba(167,139,250,.4); }
+.dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green);
+  animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.tab-nav { display: flex; overflow-x: auto; }
+.tab-nav::-webkit-scrollbar { display: none; }
+.tab-btn {
+  display: flex; align-items: center; gap: 5px; padding: 0 10px;
+  height: 52px; white-space: nowrap; background: none; border: none;
+  color: var(--fg-m); font-size: 13px; font-weight: 500;
+  border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
+}
+.tab-btn:hover { color: var(--fg); }
+.tab-btn.active { color: var(--fg); border-bottom-color: var(--yellow); }
+.tab-cnt {
+  background: var(--gh-canvas2); border: 1px solid var(--gh-border);
+  border-radius: 20px; font-size: 10px; font-weight: 600;
+  padding: 0 6px; min-width: 18px; text-align: center;
+  color: var(--fg-m); line-height: 16px;
+}
+.tab-btn.active .tab-cnt { background: rgba(212,167,65,.15); color: var(--yellow); }
+.gh-nav-r { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.gh-time { font-size: 11px; color: var(--fg-s); white-space: nowrap; }
+.gh-time strong { color: var(--fg-m); }
+.gh-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--gh-canvas2); border: 1px solid var(--gh-border);
+  color: var(--fg); padding: 4px 10px; border-radius: 6px;
+  transition: background .1s;
+}
+.gh-btn:hover { background: rgba(255,255,255,.06); }
 
-/* === Main grid === */
-.wrap { max-width: 1640px; margin: 0 auto; padding: 0 20px; }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(3,1fr);
-  gap: 16px;
-  padding: 18px 0 40px;
+/* ── Layout ──────────────────────────── */
+.layout {
+  display: grid; grid-template-columns: minmax(0,1fr) 420px;
+  height: calc(100vh - 52px); margin-top: 52px;
 }
-@media (max-width:1100px) { .grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width:700px)  { .grid { grid-template-columns: 1fr; } }
+.list-pane {
+  border-right: 1px solid var(--gh-border);
+  overflow-y: auto; height: 100%;
+}
+.list-pane::-webkit-scrollbar { width: 6px; }
+.list-pane::-webkit-scrollbar-thumb { background: var(--gh-border); border-radius: 3px; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.list-hdr {
+  display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+  border-bottom: 1px solid var(--gh-border-m);
+  position: sticky; top: 0; z-index: 10; background: var(--gh-bg);
+}
+.list-hdr h2 { font-size: 13px; font-weight: 600; }
+.list-cnt-b {
+  background: var(--gh-canvas2); border: 1px solid var(--gh-border);
+  border-radius: 20px; font-size: 10px; font-weight: 600;
+  padding: 0 7px; color: var(--fg-m); line-height: 16px;
+}
+.list-src { margin-left: auto; font-size: 11px; color: var(--fg-s); white-space: nowrap; }
 
-/* === Panel === */
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--pb);
-  border-radius: 14px;
-  display: flex; flex-direction: column;
-  max-height: calc(100vh - 120px);
-  overflow: hidden;
-  transition: border-color .2s;
+/* ── Item rows ────────────────────────── */
+.item-row {
+  display: flex; gap: 10px; padding: 11px 16px;
+  border-bottom: 1px solid var(--gh-border-m);
+  cursor: pointer; background: transparent; transition: background .1s;
 }
-.panel:hover { border-color: rgba(255,255,255,.11); }
-.ph {
-  padding: 14px 18px 11px;
-  border-bottom: 1px solid var(--pb);
-  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+.item-row:hover { background: rgba(56,139,253,.04); }
+.item-row.sel { background: rgba(56,139,253,.07); border-left: 2px solid var(--blue); padding-left: 14px; }
+.item-row:last-child { border-bottom: none; }
+.item-ic {
+  width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 13px;
 }
-.ph h2 { font-size: 13px; font-weight: 600; }
-.ph-b {
-  margin-left: auto; font-size: 10px; font-weight: 700;
-  padding: 2px 9px; border-radius: 100px; letter-spacing: .4px;
-}
-.bv { background: rgba(167,139,250,.12); color: var(--v); }
-.bg { background: rgba(52,211,153,.12); color: var(--g); }
-.bo { background: rgba(251,146,60,.12); color: var(--o); }
-.ps { overflow-y: auto; flex: 1; padding: 4px 0; }
-.ps::-webkit-scrollbar { width: 4px; }
-.ps::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 2px; }
-.pf {
-  padding: 7px 18px; border-top: 1px solid var(--pb);
-  font-size: 11px; color: var(--muted); flex-shrink: 0;
-}
-.pf strong { color: var(--t2); }
-
-/* === Cards === */
-.card {
-  padding: 11px 18px;
-  border-bottom: 1px solid rgba(255,255,255,.03);
-  cursor: pointer; transition: background .12s; position: relative;
-}
-.card:hover { background: rgba(255,255,255,.025); }
-.card:last-child { border-bottom: none; }
-.av { border-left: 2px solid var(--v); }
-.ag { border-left: 2px solid var(--g); }
-.ar { border-left: 2px solid var(--r); }
-.ao { border-left: 2px solid var(--o); }
-.ab { border-left: 2px solid var(--b); }
-.ct {
-  font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.4;
+.ic-leak  { background: rgba(248,113,113,.15); }
+.ic-vip   { background: rgba(163,113,247,.15); }
+.ic-trend { background: rgba(63,185,80,.15); }
+.ic-alert { background: rgba(227,179,65,.15); }
+.item-body { flex: 1; min-width: 0; }
+.item-title {
+  font-size: 13px; font-weight: 500; color: var(--fg); line-height: 1.4;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; margin-bottom: 7px; display: block;
+  overflow: hidden; margin-bottom: 4px;
 }
-.ct:hover { color: var(--v); }
-.cd { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; margin-bottom: 6px; }
-.tags { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-.tag {
+.item-row:hover .item-title, .item-row.sel .item-title { color: var(--blue); }
+.item-meta { font-size: 11px; color: var(--fg-s); display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 5px; }
+.item-labels { display: flex; gap: 4px; flex-wrap: wrap; }
+.lbl {
+  display: inline-flex; align-items: center; gap: 3px;
   font-size: 10px; font-weight: 600; letter-spacing: .3px;
-  padding: 1px 7px; border-radius: 100px;
+  padding: 1px 7px; border-radius: 20px; line-height: 16px;
 }
-.ts  { background: rgba(96,165,250,.1); color: var(--b); }
-.tl  { background: rgba(167,139,250,.1); color: var(--v); }
-.tsc { background: rgba(251,146,60,.1); color: var(--o); }
-.tst { background: rgba(251,191,36,.1); color: var(--gold); }
-.tv  { background: rgba(167,139,250,.18); color: #c4b5fd; border: 1px solid rgba(167,139,250,.28); }
-.tc  { background: rgba(248,113,113,.12); color: var(--r); }
-.th  { background: rgba(251,146,60,.12); color: var(--o); }
-.tn  { background: rgba(96,165,250,.1); color: var(--b); }
-.ct-ago { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.lbl-red    { background: rgba(248,113,113,.15); color: #f85149; border: 1px solid rgba(248,113,113,.25); }
+.lbl-orange { background: rgba(210,153,34,.12);  color: #d29922; border: 1px solid rgba(210,153,34,.25); }
+.lbl-blue   { background: rgba(88,166,255,.1);   color: #58a6ff; border: 1px solid rgba(88,166,255,.2); }
+.lbl-green  { background: rgba(63,185,80,.1);    color: #3fb950; border: 1px solid rgba(63,185,80,.2); }
+.lbl-purple { background: rgba(163,113,247,.12); color: #a371f7; border: 1px solid rgba(163,113,247,.2); }
+.lbl-gray   { background: rgba(139,148,158,.1);  color: #8b949e; border: 1px solid rgba(139,148,158,.2); }
+.lbl-yellow { background: rgba(227,179,65,.1);   color: #e3b341; border: 1px solid rgba(227,179,65,.2); }
 
-/* === Utility states === */
-.loading {
-  display: flex; justify-content: center; align-items: center;
-  gap: 8px; padding: 52px; color: var(--muted); font-size: 13px;
+/* ── Detail pane ──────────────────────── */
+.detail-pane { height: 100%; overflow-y: auto; background: var(--gh-bg); }
+.detail-pane::-webkit-scrollbar { width: 6px; }
+.detail-pane::-webkit-scrollbar-thumb { background: var(--gh-border); border-radius: 3px; }
+.detail-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--fg-s); gap: 10px; text-align: center; padding: 32px;
 }
-.spin {
-  width: 15px; height: 15px;
-  border: 2px solid rgba(167,139,250,.18); border-top-color: var(--v);
-  border-radius: 50%; animation: rot .7s linear infinite;
+.detail-empty-ico { font-size: 36px; opacity: .4; }
+.detail-empty h3 { font-size: 14px; font-weight: 500; color: var(--fg-m); }
+.detail-empty p { font-size: 12px; line-height: 1.6; }
+.detail-body { padding: 20px; display: none; }
+.detail-body.vis { display: block; }
+.d-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--gh-border-m); }
+.d-icon { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.d-title-g { flex: 1; min-width: 0; }
+.d-title { font-size: 15px; font-weight: 600; color: var(--fg); line-height: 1.35; margin-bottom: 6px; }
+.d-labels { display: flex; gap: 4px; flex-wrap: wrap; }
+.d-desc {
+  font-size: 13px; color: var(--fg-m); line-height: 1.7; margin-bottom: 16px;
+  padding: 10px 12px; background: var(--gh-canvas);
+  border: 1px solid var(--gh-border-m); border-radius: 6px;
+}
+.d-sec { margin-bottom: 16px; }
+.d-sec-title {
+  font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--fg-s); margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+}
+.d-sec-title::after { content: ''; flex: 1; height: 1px; background: var(--gh-border-m); }
+.code-block { background: var(--gh-canvas); border: 1px solid var(--gh-border-m); border-radius: 6px; overflow: hidden; }
+.code-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 12px; background: var(--gh-canvas2);
+  border-bottom: 1px solid var(--gh-border-m); font-size: 11px; color: var(--fg-m);
+}
+.code-body { padding: 10px 12px; overflow-x: auto; }
+.code-body pre {
+  font-family: ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+  font-size: 12px; color: var(--fg-m); white-space: pre-wrap;
+  word-break: break-all; line-height: 1.6;
+}
+.copy-btn {
+  background: none; border: 1px solid transparent; color: var(--fg-s);
+  font-size: 11px; padding: 2px 7px; border-radius: 4px; transition: all .1s;
+}
+.copy-btn:hover { color: var(--fg); border-color: var(--gh-border); background: var(--gh-canvas2); }
+.copy-btn.copied { color: var(--green); border-color: rgba(63,185,80,.3); }
+.meta-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.meta-tbl td { padding: 5px 0; vertical-align: top; }
+.meta-tbl td:first-child { color: var(--fg-s); width: 110px; white-space: nowrap; }
+.meta-tbl td:last-child { color: var(--fg-m); }
+.stats-bar { display: flex; gap: 16px; flex-wrap: wrap; padding: 8px 0; }
+.stat-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg-m); }
+.stat-item strong { color: var(--fg); }
+.mirrors-list { display: flex; flex-direction: column; gap: 6px; }
+.mirror-row {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  background: var(--gh-canvas); border: 1px solid var(--gh-border-m);
+  border-radius: 6px; font-size: 12px;
+}
+.mirror-url { color: var(--blue); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.action-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--gh-border-m); }
+.btn-p {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #238636; border: 1px solid rgba(240,246,252,.1);
+  color: #fff; padding: 5px 14px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  transition: background .1s;
+}
+.btn-p:hover { background: #2ea043; text-decoration: none; }
+.btn-s {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--gh-canvas2); border: 1px solid var(--gh-border);
+  color: var(--fg); padding: 5px 14px; border-radius: 6px; font-size: 12px;
+  transition: background .1s;
+}
+.btn-s:hover { background: rgba(255,255,255,.06); text-decoration: none; }
+.gh-loading {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 40px; color: var(--fg-s); font-size: 13px;
+}
+.gh-spin {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(88,166,255,.2); border-top-color: var(--blue);
+  border-radius: 50%; animation: rot .6s linear infinite;
 }
 @keyframes rot { to { transform: rotate(360deg); } }
-.empty { text-align: center; padding: 52px 24px; color: var(--muted); }
-.ei { font-size: 26px; margin-bottom: 8px; }
-.empty p { font-size: 13px; }
-.empty small { font-size: 11px; color: #334155; }
+.gh-empty { text-align: center; padding: 40px 24px; color: var(--fg-s); }
+.gh-empty-ico { font-size: 26px; opacity: .4; margin-bottom: 8px; }
+.gh-empty p { font-size: 13px; }
+#toast {
+  position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+  background: var(--gh-canvas); border: 1px solid var(--gh-border);
+  color: var(--green); padding: 8px 14px; border-radius: 6px;
+  font-size: 12px; font-weight: 600; opacity: 0; transform: translateY(8px);
+  transition: opacity .2s, transform .2s; pointer-events: none;
+}
+#toast.show { opacity: 1; transform: translateY(0); }
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .detail-pane { display: none; }
+  html, body { overflow: auto; }
+}
 </style>
 </head>
 <body>
 
-<header>
-  <div class="hd">
-    <span class="logo">🔭 repo-radar</span>
-    <span class="live-b"><span class="dot"></span>LIVE</span>
-    <div class="hd-r">
-      <span class="hd-info">Next refresh in <strong id="cd">60</strong>s &nbsp;·&nbsp; <span id="ts">loading…</span></span>
-      <button class="btn-r" onclick="doRefresh()">↺ Refresh</button>
+<header class="gh-header">
+  <nav class="gh-nav">
+    <div class="gh-logo">🔭 <span>repo-radar</span>
+      <span class="live-pill"><span class="dot"></span>LIVE</span>
     </div>
-  </div>
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="leaks" onclick="switchTab('leaks')">💀 Leaks <span class="tab-cnt" id="cnt-leaks">…</span></button>
+      <button class="tab-btn" data-tab="vip" onclick="switchTab('vip')">🧬 VIP Feed <span class="tab-cnt" id="cnt-vip">…</span></button>
+      <button class="tab-btn" data-tab="trending" onclick="switchTab('trending')">🔥 Trending <span class="tab-cnt" id="cnt-trending">…</span></button>
+      <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts')">🚨 Alerts <span class="tab-cnt" id="cnt-alerts">0</span></button>
+    </div>
+    <div class="gh-nav-r">
+      <span class="gh-time">↺ <strong><span id="cd">60</span>s</strong> &nbsp;·&nbsp; <span id="ts">loading…</span></span>
+      <button class="gh-btn" onclick="doRefresh()">↺ Refresh</button>
+    </div>
+  </nav>
 </header>
 
-<div class="wrap">
-  <div class="grid">
+<div class="layout">
 
-    <!-- VIP AI Feed -->
-    <div class="panel">
-      <div class="ph">
-        <span>🧬</span>
-        <h2>VIP AI / Tech Feed</h2>
-        <span class="ph-b bv">AI · coding · VIP</span>
-      </div>
-      <div class="ps" id="vip-p"><div class="loading"><div class="spin"></div>Loading…</div></div>
-      <div class="pf">Source: <strong>Hacker News</strong> · filtered for AI &amp; VIP</div>
+  <div class="list-pane">
+    <!-- Leaks -->
+    <div id="tab-leaks" class="tab-panel active">
+      <div class="list-hdr"><span>💀</span><h2>Leaked Source Code</h2><span class="list-cnt-b" id="leaks-cnt-h">…</span><span class="list-src">Confirmed + GitHub discovered · browse only</span></div>
+      <div id="leaks-list"><div class="gh-loading"><div class="gh-spin"></div>Loading leaks…</div></div>
     </div>
-
-    <!-- GitHub Trending -->
-    <div class="panel">
-      <div class="ph">
-        <span>🔥</span>
-        <h2>GitHub Trending</h2>
-        <span class="ph-b bg">New &amp; popular</span>
-      </div>
-      <div class="ps" id="git-p"><div class="loading"><div class="spin"></div>Loading…</div></div>
-      <div class="pf">Source: <strong>GitHub API</strong> · created in last 30 days</div>
+    <!-- VIP -->
+    <div id="tab-vip" class="tab-panel">
+      <div class="list-hdr"><span>🧬</span><h2>VIP AI / Tech Feed</h2><span class="list-cnt-b" id="vip-cnt-h">…</span><span class="list-src">Hacker News · AI &amp; VIP filtered</span></div>
+      <div id="vip-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
     </div>
-
+    <!-- Trending -->
+    <div id="tab-trending" class="tab-panel">
+      <div class="list-hdr"><span>🔥</span><h2>GitHub Trending</h2><span class="list-cnt-b" id="trend-cnt-h">…</span><span class="list-src">GitHub · created last 30 days</span></div>
+      <div id="trend-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
+    </div>
     <!-- Alerts -->
-    <div class="panel">
-      <div class="ph">
-        <span>🚨</span>
-        <h2>Recent Alerts</h2>
-        <span class="ph-b bo" id="ab">0 alerts</span>
-      </div>
-      <div class="ps" id="alert-p"><div class="loading"><div class="spin"></div>Loading…</div></div>
-      <div class="pf">From <strong>repo-radar watch</strong> · run watch to populate</div>
+    <div id="tab-alerts" class="tab-panel">
+      <div class="list-hdr"><span>🚨</span><h2>Recent Alerts</h2><span class="list-cnt-b" id="alert-cnt-h">…</span><span class="list-src">repo-radar watch loop</span></div>
+      <div id="alert-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
     </div>
-
   </div>
+
+  <div class="detail-pane">
+    <div class="detail-empty" id="detail-empty">
+      <div class="detail-empty-ico">🔍</div>
+      <h3>Select an item</h3>
+      <p>Click any item on the left<br>to see full details here.</p>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </div>
+
 </div>
+<div id="toast">✓ Copied!</div>
 
 <script>
-// ── helpers ───────────────────────────────────────────────────────────────────
-const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const kfmt = n => !n ? '0' : n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+const E = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const K = n => !n ? '0' : n>=1000 ? (n/1000).toFixed(1)+'k' : String(n);
 function ago(ts) {
   if (!ts) return '';
-  const s = Math.floor(Date.now()/1000) - (typeof ts === 'string' ? Math.floor(new Date(ts).getTime()/1000) : ts);
-  if (s < 60)    return 'just now';
-  if (s < 3600)  return Math.floor(s/60)+'m ago';
-  if (s < 86400) return Math.floor(s/3600)+'h ago';
-  return Math.floor(s/86400)+'d ago';
+  const secs = Math.floor(Date.now()/1000) - (typeof ts==='string' ? Math.floor(new Date(ts).getTime()/1000) : ts);
+  if (secs < 60)    return 'just now';
+  if (secs < 3600)  return Math.floor(secs/60)+'m ago';
+  if (secs < 86400) return Math.floor(secs/3600)+'h ago';
+  const d = Math.floor(secs/86400);
+  return d < 365 ? d+'d ago' : Math.floor(d/365)+'y ago';
 }
-
-// ── renderers ─────────────────────────────────────────────────────────────────
-function renderVip(items) {
-  if (!items || !items.length)
-    return `<div class="empty"><div class="ei">🧬</div><p>No AI/tech stories right now</p></div>`;
-  return items.map(it => {
-    const ac = it.vip_match ? 'av' : 'ab';
-    const vt = it.vip_match ? `<span class="tag tv">★ ${esc(it.vip_match)}</span>` : '';
-    const st = it.score   ? `<span class="tag tsc">▲ ${it.score}</span>` : '';
-    const bt = it.by      ? `<span class="tag ts">@${esc(it.by)}</span>` : '';
-    return `<div class="card ${ac}" onclick="window.open('${esc(it.url)}','_blank')">
-      <a class="ct" href="${esc(it.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(it.title)}</a>
-      <div class="tags">${vt}${st}${bt}<span class="ct-ago">${ago(it.time)}</span></div>
-    </div>`;
-  }).join('');
+let _toast;
+function toast(msg) {
+  const el = document.getElementById('toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(_toast); _toast = setTimeout(() => el.classList.remove('show'), 1800);
 }
-
-function renderTrending(items) {
-  if (!items || !items.length)
-    return `<div class="empty"><div class="ei">🔥</div><p>No trending repos found</p></div>`;
-  return items.map(r => {
-    const desc = r.description ? `<div class="cd">${esc(r.description)}</div>` : '';
-    const lang = r.language   ? `<span class="tag tl">${esc(r.language)}</span>` : '';
-    return `<div class="card ag" onclick="window.open('${esc(r.html_url)}','_blank')">
-      <a class="ct" href="${esc(r.html_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(r.full_name)}</a>
-      ${desc}
-      <div class="tags"><span class="tag tst">★ ${kfmt(r.stargazers_count)}</span>${lang}</div>
-    </div>`;
-  }).join('');
-}
-
-function renderAlerts(items) {
-  document.getElementById('ab').textContent = `${items && items.length || 0} alert${items && items.length === 1 ? '' : 's'}`;
-  if (!items || !items.length)
-    return `<div class="empty"><div class="ei">✅</div><p>No alerts yet</p><small>Run <code>repo-radar serve</code> to start watching</small></div>`;
-  return items.map(a => {
-    const p = (a.priority || 'Normal').toLowerCase();
-    const ac = p === 'critical' ? 'ar' : p === 'high' ? 'ao' : 'ab';
-    const pt = p === 'critical' ? `<span class="tag tc">⚠ CRITICAL</span>` :
-               p === 'high'     ? `<span class="tag th">↑ HIGH</span>` :
-                                  `<span class="tag tn">→ NORMAL</span>`;
-    const src = typeof a.source === 'string' ? a.source : (a.source?.RssFeed || 'Unknown');
-    const lg = a.language      ? `<span class="tag tl">${esc(a.language)}</span>` : '';
-    const st = a.stars_now     ? `<span class="tag tst">★ ${kfmt(a.stars_now)}</span>` : '';
-    const gn = a.stars_gained_24h ? `<span class="tag tsc">+${kfmt(a.stars_gained_24h)}</span>` : '';
-    return `<div class="card ${ac}" onclick="window.open('${esc(a.url||'#')}','_blank')">
-      <a class="ct" href="${esc(a.url||'#')}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(a.repo_full_name)}</a>
-      <div class="tags">${pt}${st}${gn}${lg}<span class="tag ts">${esc(src)}</span><span class="ct-ago">${ago(a.detected_at)}</span></div>
-    </div>`;
-  }).join('');
-}
-
-// ── data loading ──────────────────────────────────────────────────────────────
-async function load(url, panelId, fn) {
-  const el = document.getElementById(panelId);
-  try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    el.innerHTML = fn(await r.json());
-  } catch(e) {
-    el.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>Failed to load</p><small>${esc(e.message)}</small></div>`;
-  }
-}
-
-function doRefresh() {
-  resetCD();
-  Promise.all([
-    load('/api/vip',      'vip-p',   renderVip),
-    load('/api/trending', 'git-p',   renderTrending),
-    load('/api/alerts',   'alert-p', renderAlerts),
-  ]).then(() => {
-    document.getElementById('ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
+function copyText(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const o = btn.textContent; btn.textContent = '✓ Copied'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = o; btn.classList.remove('copied'); }, 1600);
+    toast('Copied!');
   });
 }
+function switchTab(name) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  document.querySelector('[data-tab="'+name+'"]').classList.add('active');
+  clearDetail();
+}
+let selEl = null;
+function showDetail(html) {
+  document.getElementById('detail-empty').style.display = 'none';
+  const b = document.getElementById('detail-body'); b.innerHTML = html; b.classList.add('vis'); b.scrollTop = 0;
+}
+function clearDetail() {
+  if (selEl) { selEl.classList.remove('sel'); selEl = null; }
+  document.getElementById('detail-empty').style.display = '';
+  document.getElementById('detail-body').classList.remove('vis');
+}
+function selectRow(el, html) {
+  if (selEl) selEl.classList.remove('sel'); selEl = el; el.classList.add('sel'); showDetail(html);
+}
 
-// ── countdown ─────────────────────────────────────────────────────────────────
+/* ── Leak ── */
+let leaksData = [];
+function renderLeakCard(item, idx) {
+  const sev = (item.severity||'').toLowerCase();
+  const sl = sev==='critical'?`<span class="lbl lbl-red">⚠ CRITICAL</span>`:sev==='high'?`<span class="lbl lbl-orange">↑ HIGH</span>`:`<span class="lbl lbl-gray">MED</span>`;
+  const cl = item.confirmed?`<span class="lbl lbl-green">✓ Confirmed</span>`:`<span class="lbl lbl-gray">Unverified</span>`;
+  const ll = item.language?`<span class="lbl lbl-blue">${E(item.language)}</span>`:'';
+  return `<div class="item-row" onclick="selLeak(this,${idx})"><div class="item-ic ic-leak">💀</div><div class="item-body"><div class="item-title">${E(item.name)}</div><div class="item-meta"><span>${E(item.discoverer)}</span><span>${ago(item.leaked_at)}</span></div><div class="item-labels">${sl}${cl}${ll}</div></div></div>`;
+}
+function renderLeakDetail(item) {
+  const sev = (item.severity||'').toLowerCase();
+  const sl = sev==='critical'?`<span class="lbl lbl-red">⚠ CRITICAL</span>`:sev==='high'?`<span class="lbl lbl-orange">↑ HIGH</span>`:`<span class="lbl lbl-gray">MEDIUM</span>`;
+  const tags = (item.tags||[]).map(t=>`<span class="lbl lbl-blue">${E(t)}</span>`).join('');
+  const mirrors = (item.mirrors||[]).length
+    ? (item.mirrors||[]).map((m,i)=>`<div class="mirror-row"><span style="color:var(--fg-s);font-size:11px">#${i+1}</span><a class="mirror-url" href="${E(m)}" target="_blank" rel="noopener">${E(m)}</a><button class="copy-btn" onclick="copyText(this,'${E(m)}')">📋 Copy</button></div>`).join('')
+    : `<div style="font-size:12px;color:var(--fg-s)">No mirrors recorded</div>`;
+  const npmHtml = item.npm_pkg?`<div class="d-sec"><div class="d-sec-title">NPM Package</div><div class="code-block"><div class="code-hdr"><span>${E(item.npm_pkg)}</span><button class="copy-btn" onclick="copyText(this,'npm view ${E(item.npm_pkg)} dist.tarball')">📋 Copy</button></div><div class="code-body"><pre>npm view ${E(item.npm_pkg)} dist.tarball</pre></div></div></div>`:'';
+  return `<div class="d-top"><div class="d-icon ic-leak" style="background:rgba(248,113,113,.15)">💀</div><div class="d-title-g"><div class="d-title">${E(item.name)}</div><div class="d-labels">${sl}${item.confirmed?'<span class="lbl lbl-green">✓ Confirmed</span>':''}${item.language?`<span class="lbl lbl-blue">${E(item.language)}</span>`:''}</div></div></div>
+<div class="d-desc">${E(item.description)}</div>
+<div class="d-sec"><div class="d-sec-title">Metadata</div><table class="meta-tbl"><tr><td>Leaked</td><td>${E(item.leaked_at)} <span style="color:var(--fg-s)">(${ago(item.leaked_at)})</span></td></tr><tr><td>Discoverer</td><td><a href="${E(item.discoverer_url)}" target="_blank" rel="noopener">${E(item.discoverer)}</a></td></tr>${item.language?`<tr><td>Language</td><td>${E(item.language)}</td></tr>`:''}</table></div>
+<div class="d-sec"><div class="d-sec-title">Root Cause</div><div class="code-block"><div class="code-hdr"><span>analysis</span></div><div class="code-body"><pre>${E(item.root_cause)}</pre></div></div></div>
+<div class="d-sec"><div class="d-sec-title">Clone Command <span style="font-size:10px;color:var(--fg-s);font-weight:400;text-transform:none">(browse only — do not execute untrusted code)</span></div><div class="code-block"><div class="code-hdr"><span>bash</span><button class="copy-btn" onclick="copyText(this,'${E(item.clone_cmd)}')">📋 Copy</button></div><div class="code-body"><pre>${E(item.clone_cmd)}</pre></div></div></div>
+${npmHtml}
+<div class="d-sec"><div class="d-sec-title">Mirrors (${(item.mirrors||[]).length})</div><div class="mirrors-list">${mirrors}</div></div>
+<div class="d-sec"><div class="d-sec-title">Tags</div><div class="item-labels" style="gap:5px">${tags}</div></div>
+<div class="action-row"><a class="btn-p" href="${E(item.repo_url)}" target="_blank" rel="noopener">Browse on GitHub ↗</a><a class="btn-s" href="${E(item.discoverer_url)}" target="_blank" rel="noopener">Original Discovery ↗</a>${item.npm_pkg?`<a class="btn-s" href="https://registry.npmjs.org/${E(item.npm_pkg)}" target="_blank" rel="noopener">NPM Registry ↗</a>`:''}</div>`;
+}
+function selLeak(el, idx) { selectRow(el, renderLeakDetail(leaksData[idx])); }
+
+/* ── VIP ── */
+let vipData = [];
+function renderVipCard(item, idx) {
+  const vl = item.vip_match?`<span class="lbl lbl-purple">★ ${E(item.vip_match)}</span>`:'';
+  const sc = item.score?`<span class="lbl lbl-orange">▲ ${item.score}</span>`:'';
+  return `<div class="item-row" onclick="selVip(this,${idx})"><div class="item-ic ic-vip">🧬</div><div class="item-body"><div class="item-title">${E(item.title)}</div><div class="item-meta">${item.by?`<span>@${E(item.by)}</span>`:''}<span>${ago(item.time)}</span></div><div class="item-labels">${vl}${sc}</div></div></div>`;
+}
+function renderVipDetail(item) {
+  return `<div class="d-top"><div class="d-icon ic-vip" style="background:rgba(163,113,247,.15)">🧬</div><div class="d-title-g"><div class="d-title">${E(item.title)}</div><div class="d-labels">${item.vip_match?`<span class="lbl lbl-purple">★ ${E(item.vip_match)}</span>`:''}${item.score?`<span class="lbl lbl-orange">▲ ${item.score} pts</span>`:''}</div></div></div>
+<div class="d-sec"><div class="d-sec-title">Details</div><table class="meta-tbl"><tr><td>Source</td><td>${E(item.source||'Hacker News')}</td></tr>${item.by?`<tr><td>Author</td><td>@${E(item.by)}</td></tr>`:''}${item.time?`<tr><td>Posted</td><td>${ago(item.time)}</td></tr>`:''}${item.score?`<tr><td>Score</td><td>${item.score} pts</td></tr>`:''}${item.vip_match?`<tr><td>VIP match</td><td style="color:var(--purple)">${E(item.vip_match)}</td></tr>`:''}</table></div>
+<div class="d-sec"><div class="d-sec-title">URL</div><div class="code-block"><div class="code-hdr"><span>link</span><button class="copy-btn" onclick="copyText(this,'${E(item.url)}')">📋 Copy</button></div><div class="code-body"><pre>${E(item.url)}</pre></div></div></div>
+<div class="action-row"><a class="btn-p" href="${E(item.url)}" target="_blank" rel="noopener">Read Article ↗</a></div>`;
+}
+function selVip(el, idx) { selectRow(el, renderVipDetail(vipData[idx])); }
+
+/* ── Trending ── */
+let trendData = [];
+function renderTrendCard(r, idx) {
+  const ll = r.language?`<span class="lbl lbl-blue">${E(r.language)}</span>`:'';
+  return `<div class="item-row" onclick="selTrend(this,${idx})"><div class="item-ic ic-trend">🔥</div><div class="item-body"><div class="item-title">${E(r.full_name)}</div>${r.description?`<div class="item-meta">${E(r.description)}</div>`:''}<div class="item-labels"><span class="lbl lbl-yellow">★ ${K(r.stargazers_count)}</span>${ll}</div></div></div>`;
+}
+function renderTrendDetail(r) {
+  const topics = (r.topics||[]).map(t=>`<span class="lbl lbl-blue">${E(t)}</span>`).join('');
+  const cloneUrl = r.clone_url||r.html_url+'.git';
+  return `<div class="d-top"><div class="d-icon ic-trend" style="background:rgba(63,185,80,.15)">🔥</div><div class="d-title-g"><div class="d-title">${E(r.full_name)}</div><div class="d-labels"><span class="lbl lbl-yellow">★ ${K(r.stargazers_count)}</span>${r.language?`<span class="lbl lbl-blue">${E(r.language)}</span>`:''}</div></div></div>
+${r.description?`<div class="d-desc">${E(r.description)}</div>`:''}
+<div class="d-sec"><div class="d-sec-title">Stats</div><div class="stats-bar"><div class="stat-item">★ <strong>${K(r.stargazers_count)}</strong> stars</div><div class="stat-item">🍴 <strong>${K(r.forks_count||0)}</strong> forks</div>${r.open_issues_count?`<div class="stat-item">● <strong>${r.open_issues_count}</strong> issues</div>`:''}</div></div>
+${r.topics&&r.topics.length?`<div class="d-sec"><div class="d-sec-title">Topics</div><div class="item-labels" style="gap:5px">${topics}</div></div>`:''}
+<div class="d-sec"><div class="d-sec-title">Clone</div><div class="code-block"><div class="code-hdr"><span>bash</span><button class="copy-btn" onclick="copyText(this,'git clone ${E(cloneUrl)}')">📋 Copy</button></div><div class="code-body"><pre>git clone ${E(cloneUrl)}</pre></div></div></div>
+<div class="action-row"><a class="btn-p" href="${E(r.html_url)}" target="_blank" rel="noopener">View on GitHub ↗</a></div>`;
+}
+function selTrend(el, idx) { selectRow(el, renderTrendDetail(trendData[idx])); }
+
+/* ── Alerts ── */
+let alertData = [];
+function renderAlertCard(a, idx) {
+  const p = (a.priority||'Normal').toLowerCase();
+  const pl = p==='critical'?`<span class="lbl lbl-red">⚠ CRITICAL</span>`:p==='high'?`<span class="lbl lbl-orange">↑ HIGH</span>`:`<span class="lbl lbl-gray">→ NORMAL</span>`;
+  const src = typeof a.source==='string'?a.source:(a.source?.RssFeed||'Unknown');
+  return `<div class="item-row" onclick="selAlert(this,${idx})"><div class="item-ic ic-alert">🚨</div><div class="item-body"><div class="item-title">${E(a.repo_full_name||a.description||'Alert')}</div><div class="item-meta"><span>${E(src)}</span><span>${ago(a.detected_at)}</span></div><div class="item-labels">${pl}${a.stars_now?`<span class="lbl lbl-yellow">★ ${K(a.stars_now)}</span>`:''}</div></div></div>`;
+}
+function renderAlertDetail(a) {
+  const p = (a.priority||'Normal').toLowerCase();
+  const pl = p==='critical'?`<span class="lbl lbl-red">⚠ CRITICAL</span>`:p==='high'?`<span class="lbl lbl-orange">↑ HIGH</span>`:`<span class="lbl lbl-gray">→ NORMAL</span>`;
+  const src = typeof a.source==='string'?a.source:(a.source?.RssFeed||'Unknown');
+  return `<div class="d-top"><div class="d-icon ic-alert" style="background:rgba(227,179,65,.15)">🚨</div><div class="d-title-g"><div class="d-title">${E(a.repo_full_name||a.description||'Alert')}</div><div class="d-labels">${pl}${a.language?`<span class="lbl lbl-blue">${E(a.language)}</span>`:''}</div></div></div>
+${a.description&&a.description!==a.repo_full_name?`<div class="d-desc">${E(a.description)}</div>`:''}
+<div class="d-sec"><div class="d-sec-title">Details</div><table class="meta-tbl"><tr><td>Source</td><td>${E(src)}</td></tr><tr><td>Priority</td><td>${E(a.priority||'Normal')}</td></tr>${a.detected_at?`<tr><td>Detected</td><td>${ago(a.detected_at)}</td></tr>`:''}${a.stars_now?`<tr><td>Stars</td><td>${K(a.stars_now)}</td></tr>`:''}${a.stars_gained_24h?`<tr><td>+24h stars</td><td>+${K(a.stars_gained_24h)}</td></tr>`:''}${a.language?`<tr><td>Language</td><td>${E(a.language)}</td></tr>`:''}</table></div>
+${a.url?`<div class="d-sec"><div class="d-sec-title">URL</div><div class="code-block"><div class="code-hdr"><span>link</span><button class="copy-btn" onclick="copyText(this,'${E(a.url)}')">📋 Copy</button></div><div class="code-body"><pre>${E(a.url)}</pre></div></div></div>`:''}
+<div class="action-row">${a.url?`<a class="btn-p" href="${E(a.url)}" target="_blank" rel="noopener">Read ↗</a>`:''}</div>`;
+}
+function selAlert(el, idx) { selectRow(el, renderAlertDetail(alertData[idx])); }
+
+/* ── Data loading ── */
+async function loadLeaks() {
+  const el = document.getElementById('leaks-list');
+  try {
+    const r = await fetch('/api/leaks'); if (!r.ok) throw new Error('HTTP '+r.status);
+    leaksData = await r.json();
+    document.getElementById('cnt-leaks').textContent = leaksData.length;
+    document.getElementById('leaks-cnt-h').textContent = leaksData.length;
+    el.innerHTML = leaksData.length ? leaksData.map((it,i)=>renderLeakCard(it,i)).join('') : `<div class="gh-empty"><div class="gh-empty-ico">💀</div><p>No leaks found</p></div>`;
+  } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
+}
+async function loadVip() {
+  const el = document.getElementById('vip-list');
+  try {
+    const r = await fetch('/api/vip'); if (!r.ok) throw new Error('HTTP '+r.status);
+    vipData = await r.json();
+    document.getElementById('cnt-vip').textContent = vipData.length;
+    document.getElementById('vip-cnt-h').textContent = vipData.length;
+    el.innerHTML = vipData.length ? vipData.map((it,i)=>renderVipCard(it,i)).join('') : `<div class="gh-empty"><div class="gh-empty-ico">🧬</div><p>No stories</p></div>`;
+  } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
+}
+async function loadTrending() {
+  const el = document.getElementById('trend-list');
+  try {
+    const r = await fetch('/api/trending'); if (!r.ok) throw new Error('HTTP '+r.status);
+    trendData = await r.json(); if (!Array.isArray(trendData)) trendData = [];
+    document.getElementById('cnt-trending').textContent = trendData.length;
+    document.getElementById('trend-cnt-h').textContent = trendData.length;
+    el.innerHTML = trendData.length ? trendData.map((it,i)=>renderTrendCard(it,i)).join('') : `<div class="gh-empty"><div class="gh-empty-ico">🔥</div><p>No repos</p></div>`;
+  } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
+}
+async function loadAlerts() {
+  const el = document.getElementById('alert-list');
+  try {
+    const r = await fetch('/api/alerts'); if (!r.ok) throw new Error('HTTP '+r.status);
+    alertData = await r.json();
+    document.getElementById('cnt-alerts').textContent = alertData.length;
+    document.getElementById('alert-cnt-h').textContent = alertData.length;
+    el.innerHTML = alertData.length ? alertData.map((it,i)=>renderAlertCard(it,i)).join('') : `<div class="gh-empty"><div class="gh-empty-ico">✅</div><p>No alerts yet</p></div>`;
+  } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
+}
+function doRefresh() {
+  resetCD(); clearDetail();
+  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts()])
+    .then(() => { document.getElementById('ts').textContent = new Date().toLocaleTimeString(); });
+}
 let cdVal = 60;
-function resetCD() { cdVal = 60; document.getElementById('cd').textContent = cdVal; }
+function resetCD() { cdVal = 60; document.getElementById('cd').textContent = 60; }
 setInterval(() => {
-  cdVal--;
-  document.getElementById('cd').textContent = Math.max(0, cdVal);
+  document.getElementById('cd').textContent = Math.max(0, --cdVal);
   if (cdVal <= 0) doRefresh();
 }, 1000);
-
 doRefresh();
 </script>
 </body>
 </html>
+

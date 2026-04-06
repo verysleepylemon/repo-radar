@@ -122,8 +122,9 @@ const AI_KEYWORDS: &[&str] = &[
 pub struct WebState {
     pub alerts: AlertBuf,
     pub http: reqwest::Client,
-    vip_cache: Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
+    vip_cache:   Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
     trend_cache: Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
+    leak_cache:  Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
 }
 
 impl WebState {
@@ -136,8 +137,9 @@ impl WebState {
         Self {
             alerts,
             http,
-            vip_cache: Arc::new(RwLock::new(None)),
+            vip_cache:   Arc::new(RwLock::new(None)),
             trend_cache: Arc::new(RwLock::new(None)),
+            leak_cache:  Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -154,7 +156,25 @@ pub struct VipItem {
     pub vip_match: Option<String>,
     pub time: Option<i64>,
 }
-
+/// A known or discovered leaked source code repository.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeakItem {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub leaked_at: String,
+    pub discoverer: String,
+    pub discoverer_url: String,
+    pub root_cause: String,
+    pub repo_url: String,
+    pub clone_cmd: String,
+    pub npm_pkg: Option<String>,
+    pub mirrors: Vec<String>,
+    pub tags: Vec<String>,
+    pub language: Option<String>,
+    pub confirmed: bool,
+    pub severity: String,
+}
 // ─── Route handlers ───────────────────────────────────────────────────────────
 
 async fn serve_dashboard() -> Html<&'static str> {
@@ -196,6 +216,30 @@ async fn api_trending(State(s): State<Arc<WebState>>) -> Json<serde_json::Value>
         .unwrap_or(serde_json::json!([]));
     *s.trend_cache.write().await = Some((Instant::now(), data.clone()));
     Json(data)
+}
+
+async fn api_leaks(State(s): State<Arc<WebState>>) -> Json<Vec<LeakItem>> {
+    const TTL: Duration = Duration::from_secs(600);
+    {
+        let c = s.leak_cache.read().await;
+        if let Some((at, ref data)) = *c {
+            if at.elapsed() < TTL {
+                return Json(data.clone());
+            }
+        }
+    }
+    let mut items = known_leaks();
+    if let Ok(found) = search_leaked_repos(&s.http).await {
+        let existing: std::collections::HashSet<String> =
+            items.iter().map(|i| i.repo_url.clone()).collect();
+        for item in found {
+            if !existing.contains(&item.repo_url) {
+                items.push(item);
+            }
+        }
+    }
+    *s.leak_cache.write().await = Some((Instant::now(), items.clone()));
+    Json(items)
 }
 
 // ─── Data helpers ─────────────────────────────────────────────────────────────
@@ -295,6 +339,99 @@ async fn fetch_github_trending(http: &reqwest::Client) -> Result<serde_json::Val
     Ok(data["items"].clone())
 }
 
+/// Hard-coded known confirmed leaks.
+fn known_leaks() -> Vec<LeakItem> {
+    vec![
+        LeakItem {
+            id: "claude-code-2026".into(),
+            name: "Claude Code — Full TypeScript Source".into(),
+            description: "Anthropic's Claude Code VS Code extension exposed via Bun-generated source maps bundled in the npm package. The .map files embed full original TypeScript source in their sourcesContent field. Revealed unreleased features: BUDDY (Tamagotchi), KAIROS (always-on assistant), ULTRAPLAN, Coordinator/Swarm multi-agent, and unreleased models Capybara / Opus 4.7 / Sonnet 4.8.".into(),
+            leaked_at: "2026-03-31T16:23:00Z".into(),
+            discoverer: "Chaofan Shou (@Fried_rice)".into(),
+            discoverer_url: "https://x.com/Fried_rice/status/2038894956459290963".into(),
+            root_cause: "Bun build tool generates *.map files by default.\n.npmignore did not exclude *.map files.\nPackage @anthropic-ai/claude-code published to npm with all source maps included.\nEach .map JSON contains a sourcesContent array with full TypeScript source.".into(),
+            repo_url: "https://github.com/Kuberwastaken/claude-code".into(),
+            clone_cmd: "git clone https://github.com/Kuberwastaken/claude-code".into(),
+            npm_pkg: Some("@anthropic-ai/claude-code".into()),
+            mirrors: vec![
+                "https://github.com/Kuberwastaken/claude-code".into(),
+            ],
+            tags: vec![
+                "Source Map".into(), "TypeScript".into(), "NPM".into(),
+                "Anthropic".into(), "LLM".into(), "VS Code Extension".into(),
+            ],
+            language: Some("TypeScript".into()),
+            confirmed: true,
+            severity: "critical".into(),
+        },
+    ]
+}
+
+/// Search GitHub for recently-created repos that look like leaked AI source code.
+async fn search_leaked_repos(http: &reqwest::Client) -> Result<Vec<LeakItem>> {
+    let q = "leaked source-code AI LLM typescript stars:>5 created:>2026-01-01";
+    let resp = http
+        .get("https://api.github.com/search/repositories")
+        .query(&[
+            ("q", q),
+            ("sort", "stars"),
+            ("order", "desc"),
+            ("per_page", "10"),
+        ])
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Ok(vec![]);
+    }
+    let data: serde_json::Value = resp.json().await?;
+    let arr = match data["items"].as_array() {
+        Some(a) => a.clone(),
+        None => return Ok(vec![]),
+    };
+    Ok(arr
+        .into_iter()
+        .filter_map(|r| {
+            let full_name = r["full_name"].as_str()?.to_string();
+            let desc = r["description"].as_str().unwrap_or("").to_string();
+            let html_url = r["html_url"].as_str()?.to_string();
+            let clone_url = r["clone_url"].as_str().unwrap_or("").to_string();
+            let lang = r["language"].as_str().map(String::from);
+            let stars = r["stargazers_count"].as_u64().unwrap_or(0);
+            let combined = format!("{full_name} {desc}").to_lowercase();
+            // Only keep repos that look genuinely leak-related
+            if !combined.contains("leak") && !combined.contains("source-map") && !combined.contains("sourcemap") {
+                return None;
+            }
+            let owner = r["owner"]["login"].as_str().unwrap_or("unknown").to_string();
+            let created = r["created_at"].as_str().unwrap_or("").to_string();
+            let mut tags = vec!["GitHub".to_string()];
+            if let Some(l) = &lang { tags.push(l.clone()); }
+            if combined.contains("leak") { tags.push("Leaked".into()); }
+            if combined.contains("source-map") || combined.contains("sourcemap") {
+                tags.push("Source Map".into());
+            }
+            Some(LeakItem {
+                id: full_name.clone(),
+                name: full_name.clone(),
+                description: desc,
+                leaked_at: created,
+                discoverer: owner.clone(),
+                discoverer_url: format!("https://github.com/{owner}"),
+                root_cause: "Discovered on GitHub — verify independently before trusting".into(),
+                clone_cmd: if clone_url.is_empty() { format!("git clone {html_url}") } else { format!("git clone {clone_url}") },
+                mirrors: vec![html_url.clone()],
+                npm_pkg: None,
+                tags,
+                language: lang,
+                confirmed: false,
+                severity: if stars > 100 { "high".into() } else { "medium".into() },
+                repo_url: html_url,
+            })
+        })
+        .collect())
+}
+
 // ─── Server startup ───────────────────────────────────────────────────────────
 
 /// Start the HTTP server.  Blocks until the server exits.
@@ -306,6 +443,7 @@ pub async fn start_server(alerts: AlertBuf, port: u16) -> Result<()> {
         .route("/api/alerts", get(api_alerts))
         .route("/api/vip", get(api_vip))
         .route("/api/trending", get(api_trending))
+        .route("/api/leaks",    get(api_leaks))
         .with_state(state)
         .layer(CorsLayer::permissive());
 
