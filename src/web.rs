@@ -722,11 +722,12 @@ async fn api_ghost(State(s): State<Arc<WebState>>) -> Json<Vec<GhostRepo>> {
 /// Search GitHub for repos that look like source dumps:
 /// many stars, very few commits (≤ 5).  Sort by stars desc (biggest first).
 async fn fetch_ghost_repos(http: &reqwest::Client) -> Result<Vec<GhostRepo>> {
-    let since_2yr = (Utc::now() - CDuration::days(730))
+    // Look back 6 months — catches recent viral dumps without being too broad
+    let since = (Utc::now() - CDuration::days(180))
         .format("%Y-%m-%d")
         .to_string();
 
-    let q = format!("stars:>100 fork:false created:>{since_2yr}");
+    let q = format!("stars:>50 fork:false created:>{since}");
     let resp = http
         .get("https://api.github.com/search/repositories")
         .query(&[
@@ -764,14 +765,18 @@ async fn fetch_ghost_repos(http: &reqwest::Client) -> Result<Vec<GhostRepo>> {
             continue;
         }
 
-        // Verify commit count is very low (≤ 5 = one-shot dump)
+        // Try to verify commit count (≤ 5 = one-shot dump).
+        // If rate-limited or errored, still include the repo so unauthenticated
+        // users see results — commits will show as 0 with a "?" marker.
         let commit_count = match fetch_commit_count(http, &full_name).await {
-            Ok(n) => n,
-            Err(_) => continue,
+            Ok(n) => {
+                if n > 5 {
+                    continue; // too many commits, not a ghost
+                }
+                n
+            }
+            Err(_) => 0, // rate-limited or error — include with 0 commits shown
         };
-        if commit_count > 5 {
-            continue;
-        }
 
         let owner = repo["owner"]["login"].as_str().unwrap_or("").to_string();
         let created_at = repo["created_at"].as_str().unwrap_or("").to_string();
