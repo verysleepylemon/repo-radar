@@ -22,6 +22,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
 use crate::detector::Alert;
+use crate::replicator::{Replicator, SeenReplications, new_seen_replications};
 use crate::secret_scanner::FindingsBuf;
 
 pub const MAX_ALERT_BUF: usize = 100;
@@ -135,14 +136,17 @@ const AI_KEYWORDS: &[&str] = &[
 
 #[derive(Clone)]
 pub struct WebState {
-    pub alerts:      AlertBuf,
-    pub findings:    FindingsBuf,
-    pub http:        reqwest::Client,
-    pub redis_store: Option<crate::redis_store::RedisStore>,
-    vip_cache:       Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
-    trend_cache:     Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
-    leak_cache:      Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
-    npm_cache:       Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
+    pub alerts:         AlertBuf,
+    pub findings:       FindingsBuf,
+    pub http:           reqwest::Client,
+    pub redis_store:    Option<crate::redis_store::RedisStore>,
+    pub replicator:     Arc<Replicator>,
+    pub seen_repls:     SeenReplications,
+    vip_cache:          Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
+    social_cache:       Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
+    trend_cache:        Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
+    leak_cache:         Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
+    npm_cache:          Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
 }
 
 impl WebState {
@@ -152,12 +156,16 @@ impl WebState {
             .timeout(Duration::from_secs(12))
             .build()
             .unwrap_or_default();
+        let replicator = Arc::new(Replicator::new(http.clone()));
         Self {
             alerts,
             findings,
             http,
             redis_store,
+            replicator,
+            seen_repls:      new_seen_replications(),
             vip_cache:       Arc::new(RwLock::new(None)),
+            social_cache:    Arc::new(RwLock::new(None)),
             trend_cache:     Arc::new(RwLock::new(None)),
             leak_cache:      Arc::new(RwLock::new(None)),
             npm_cache:       Arc::new(RwLock::new(None)),
@@ -206,8 +214,10 @@ async fn serve_dashboard() -> Html<&'static str> {
 }
 
 async fn api_alerts(State(s): State<Arc<WebState>>) -> Json<Vec<Alert>> {
+    // Only serve alerts from the last 3 days.
+    let cutoff = Utc::now() - CDuration::days(3);
     let g = s.alerts.read().await;
-    Json(g.iter().cloned().collect())
+    Json(g.iter().filter(|a| a.detected_at > cutoff).cloned().collect())
 }
 
 async fn api_secrets(State(s): State<Arc<WebState>>) -> Json<Vec<serde_json::Value>> {
@@ -252,7 +262,10 @@ async fn api_vip(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
             }
         }
     }
-    let items = fetch_vip_feed(&s.http).await.unwrap_or_default();
+    let mut items = fetch_vip_feed(&s.http).await.unwrap_or_default();
+    // Drop items older than 3 days (HN `time` is Unix timestamp).
+    let cutoff_unix = (Utc::now() - CDuration::days(3)).timestamp();
+    items.retain(|i| i.time.map_or(true, |t| t > cutoff_unix));
     *s.vip_cache.write().await = Some((Instant::now(), items.clone()));
     Json(items)
 }
@@ -272,6 +285,23 @@ async fn api_trending(State(s): State<Arc<WebState>>) -> Json<serde_json::Value>
         .unwrap_or(serde_json::json!([]));
     *s.trend_cache.write().await = Some((Instant::now(), data.clone()));
     Json(data)
+}
+
+async fn api_social(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
+    const TTL: Duration = Duration::from_secs(60);
+    {
+        let c = s.social_cache.read().await;
+        if let Some((at, ref data)) = *c {
+            if at.elapsed() < TTL {
+                return Json(data.clone());
+            }
+        }
+    }
+    let mut items = fetch_social_feed(&s.http).await.unwrap_or_default();
+    let cutoff_unix = (Utc::now() - CDuration::days(3)).timestamp();
+    items.retain(|i| i.time.map_or(true, |t| t > cutoff_unix));
+    *s.social_cache.write().await = Some((Instant::now(), items.clone()));
+    Json(items)
 }
 
 async fn api_leaks(State(s): State<Arc<WebState>>) -> Json<Vec<LeakItem>> {
@@ -319,6 +349,17 @@ async fn api_leaks(State(s): State<Arc<WebState>>) -> Json<Vec<LeakItem>> {
             }
         }
     }
+    // ── Auto-replication: trigger for any new confirmed/critical leak ────────
+    for item in items.iter().filter(|i| i.confirmed || i.severity == "critical") {
+        let already_seen = s.seen_repls.read().await.contains(&item.id);
+        if !already_seen {
+            s.seen_repls.write().await.insert(item.id.clone());
+            let repl  = s.replicator.clone();
+            let owned = item.clone();
+            tokio::spawn(async move { repl.replicate(owned).await });
+        }
+    }
+
     *s.leak_cache.write().await = Some((Instant::now(), items.clone()));
     Json(items)
 }
@@ -384,13 +425,177 @@ async fn fetch_vip_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
         }
     }
 
+    // ── Reddit: public JSON, no auth needed ──────────────────────────────────
+    const SUBREDDITS: &[&str] = &["MachineLearning", "artificial", "LocalLLaMA", "programming"];
+    for sub in SUBREDDITS {
+        let url = format!("https://www.reddit.com/r/{sub}/hot.json?limit=25");
+        if let Ok(resp) = http
+            .get(&url)
+            .header("User-Agent", "repo-radar/1.0 leak-monitor")
+            .send()
+            .await
+        {
+            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                if let Some(posts) = data["data"]["children"].as_array() {
+                    for post in posts.iter().take(15) {
+                        let d = &post["data"];
+                        let title     = d["title"].as_str().unwrap_or("").to_string();
+                        let post_url  = d["url"].as_str().unwrap_or("").to_string();
+                        let permalink = d["permalink"].as_str().unwrap_or("");
+                        let combined  = format!("{title} {post_url}").to_lowercase();
+                        let vip_match = VIP_TERMS.iter()
+                            .find(|&&t| combined.contains(t))
+                            .map(|s| s.to_string());
+                        let is_ai = AI_KEYWORDS.iter().any(|&kw| combined.contains(kw));
+                        if vip_match.is_some() || is_ai {
+                            items.push(VipItem {
+                                title,
+                                url: if post_url.starts_with("http") {
+                                    post_url
+                                } else {
+                                    format!("https://reddit.com{permalink}")
+                                },
+                                source: format!("Reddit r/{sub}"),
+                                score: d["score"].as_u64().map(|v| v as u32),
+                                by:    d["author"].as_str().map(Into::into),
+                                vip_match,
+                                time:  d["created_utc"].as_f64().map(|t| t as i64),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Dev.to: free API, no auth needed ─────────────────────────────────────
+    for tag in &["ai", "machinelearning", "llm", "artificialintelligence"] {
+        let url = format!("https://dev.to/api/articles?tag={tag}&per_page=15&state=rising");
+        if let Ok(resp) = http.get(&url).send().await {
+            if let Ok(articles) = resp.json::<Vec<serde_json::Value>>().await {
+                for art in articles.iter().take(8) {
+                    let title    = art["title"].as_str().unwrap_or("").to_string();
+                    let art_url  = art["url"].as_str().unwrap_or("").to_string();
+                    let combined = format!("{title} {art_url}").to_lowercase();
+                    let vip_match = VIP_TERMS.iter()
+                        .find(|&&t| combined.contains(t))
+                        .map(|s| s.to_string());
+                    let is_ai = AI_KEYWORDS.iter().any(|&kw| combined.contains(kw));
+                    if vip_match.is_some() || is_ai {
+                        let ts = art["published_at"]
+                            .as_str()
+                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                            .map(|dt| dt.timestamp());
+                        items.push(VipItem {
+                            title,
+                            url:       art_url,
+                            source:    "Dev.to".into(),
+                            score:     art["positive_reactions_count"].as_u64().map(|v| v as u32),
+                            by:        art["user"]["username"].as_str().map(Into::into),
+                            vip_match,
+                            time:      ts,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     // VIP matches first, then by score descending.
     items.sort_by(|a, b| {
         let av = a.vip_match.is_some() as u8;
         let bv = b.vip_match.is_some() as u8;
         bv.cmp(&av).then_with(|| b.score.cmp(&a.score))
     });
-    items.truncate(30);
+    items.truncate(50);
+    Ok(items)
+}
+
+/// Broader social feed: all Reddit + Dev.to + HN items, no AI keyword filter.
+/// Used by `/api/social` to show a raw pulse of what's being talked about.
+async fn fetch_social_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
+    let mut items: Vec<VipItem> = Vec::new();
+
+    // Reddit — broader subreddit list, no keyword gating
+    const SOCIAL_SUBS: &[&str] = &[
+        "MachineLearning", "artificial", "LocalLLaMA", "programming",
+        "technology", "compsci", "softwaregore", "learnprogramming",
+    ];
+    for sub in SOCIAL_SUBS {
+        let url = format!("https://www.reddit.com/r/{sub}/hot.json?limit=10");
+        if let Ok(resp) = http
+            .get(&url)
+            .header("User-Agent", "repo-radar/1.0 social-feed")
+            .send()
+            .await
+        {
+            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                if let Some(posts) = data["data"]["children"].as_array() {
+                    for post in posts.iter().take(8) {
+                        let d         = &post["data"];
+                        let title     = d["title"].as_str().unwrap_or("").to_string();
+                        let post_url  = d["url"].as_str().unwrap_or("").to_string();
+                        let permalink = d["permalink"].as_str().unwrap_or("");
+                        let combined  = format!("{title} {post_url}").to_lowercase();
+                        let vip_match = VIP_TERMS.iter()
+                            .find(|&&t| combined.contains(t))
+                            .map(|s| s.to_string());
+                        items.push(VipItem {
+                            title,
+                            url: if post_url.starts_with("http") {
+                                    post_url
+                                } else {
+                                    format!("https://reddit.com{permalink}")
+                                },
+                            source: format!("Reddit r/{sub}"),
+                            score: d["score"].as_u64().map(|v| v as u32),
+                            by:    d["author"].as_str().map(Into::into),
+                            vip_match,
+                            time:  d["created_utc"].as_f64().map(|t| t as i64),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Dev.to — top articles, no filter
+    for tag in &["ai", "devops", "webdev", "rust", "python"] {
+        let url = format!("https://dev.to/api/articles?tag={tag}&per_page=8&state=rising");
+        if let Ok(resp) = http.get(&url).send().await {
+            if let Ok(articles) = resp.json::<Vec<serde_json::Value>>().await {
+                for art in articles.iter().take(5) {
+                    let title   = art["title"].as_str().unwrap_or("").to_string();
+                    let art_url = art["url"].as_str().unwrap_or("").to_string();
+                    let combined = format!("{title} {art_url}").to_lowercase();
+                    let vip_match = VIP_TERMS.iter()
+                        .find(|&&t| combined.contains(t))
+                        .map(|s| s.to_string());
+                    let ts = art["published_at"]
+                        .as_str()
+                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                        .map(|dt| dt.timestamp());
+                    items.push(VipItem {
+                        title,
+                        url: art_url,
+                        source: "Dev.to".into(),
+                        score: art["positive_reactions_count"].as_u64().map(|v| v as u32),
+                        by:    art["user"]["username"].as_str().map(Into::into),
+                        vip_match,
+                        time: ts,
+                    });
+                }
+            }
+        }
+    }
+
+    // Sort: items with VIP match first, then by score
+    items.sort_by(|a, b| {
+        let av = a.vip_match.is_some() as u8;
+        let bv = b.vip_match.is_some() as u8;
+        bv.cmp(&av).then_with(|| b.score.cmp(&a.score))
+    });
+    items.truncate(80);
     Ok(items)
 }
 
@@ -602,6 +807,7 @@ pub async fn start_server(alerts: AlertBuf, findings: FindingsBuf, redis_store: 
         .route("/", get(serve_dashboard))
         .route("/api/alerts",  get(api_alerts))
         .route("/api/vip",     get(api_vip))
+        .route("/api/social",  get(api_social))
         .route("/api/trending",get(api_trending))
         .route("/api/leaks",   get(api_leaks))
         .route("/api/secrets", get(api_secrets))

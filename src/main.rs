@@ -144,6 +144,21 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
     let poll_tw  = Duration::from_secs(config.twitter_interval_secs);
     let poll_rd  = Duration::from_secs(900);
 
+    // Background task: purge Redis alerts older than 3 days every 6 hours.
+    if let Some(store_purge) = store_web.clone() {
+        tokio::spawn(async move {
+            let mut interval = time::interval(Duration::from_secs(6 * 3600));
+            loop {
+                interval.tick().await;
+                match store_purge.purge_old_alerts(Duration::from_secs(3 * 86_400)).await {
+                    Ok(n) if n > 0 => info!(removed = n, "Purged old Redis alerts (3-day retention)"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "Redis purge failed"),
+                }
+            }
+        });
+    }
+
     // Run the web server concurrently with the watch loop.
     tokio::select! {
         res = web::start_server(buf, findings, store_web, port) => {
