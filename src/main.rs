@@ -13,6 +13,7 @@ use repo_radar::sources::hackernews::HackerNewsSource;
 use repo_radar::sources::reddit::RedditSource;
 use repo_radar::sources::rss::RssSource;
 use repo_radar::sources::twitter::TwitterSource;
+use repo_radar::web;
 
 #[derive(Parser)]
 #[command(
@@ -31,6 +32,12 @@ struct Cli {
 enum Commands {
     /// Watch GitHub + HN continuously and send alerts
     Watch,
+    /// Watch + serve the live web dashboard (default port 8080)
+    Serve {
+        /// HTTP port for the dashboard
+        #[arg(long, default_value = "8080")]
+        port: u16,
+    },
     /// One-shot spike check for a single repo (e.g. rust-lang/rust)
     Check { repo: String },
     /// Show the last 20 alerts stored in Redis
@@ -51,6 +58,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Watch => run_watch(cli.config).await?,
+        Commands::Serve { port } => run_serve(cli.config, port).await?,
         Commands::Check { repo } => run_check(cli.config, &repo).await?,
         Commands::Status => run_status(cli.config).await?,
     }
@@ -80,17 +88,76 @@ async fn run_watch(config: Config) -> Result<()> {
         info!("Twitter/X source disabled (set TWITTER_BEARER_TOKEN to enable)");
     }
 
-    let poll_gh   = Duration::from_secs(config.poll_interval_secs);
-    let poll_hn   = Duration::from_secs(180);
-    let poll_rss  = Duration::from_secs(config.rss_interval_secs);
-    let poll_tw   = Duration::from_secs(config.twitter_interval_secs);
-    let poll_rd   = Duration::from_secs(900);
+    let poll_gh  = Duration::from_secs(config.poll_interval_secs);
+    let poll_hn  = Duration::from_secs(180);
+    let poll_rss = Duration::from_secs(config.rss_interval_secs);
+    let poll_tw  = Duration::from_secs(config.twitter_interval_secs);
+    let poll_rd  = Duration::from_secs(900);
 
-    let mut gh_interval = time::interval(poll_gh);
-    let mut hn_interval = time::interval(poll_hn);
+    run_watch_loop(config, detector, github, hn, reddit, rss, twitter,
+                   poll_gh, poll_hn, poll_rss, poll_tw, poll_rd).await
+}
+
+async fn run_serve(config: Config, port: u16) -> Result<()> {
+    let buf = web::new_alert_buf();
+
+    let store = RedisStore::try_connect(&config.redis_url).await;
+    if store.is_none() {
+        eprintln!("⚠️  Redis not available — running without dedup/persistence.");
+    }
+    let notifiers = NotifierSet::from_config(&config);
+    let github = GitHubSource::new(&config)?;
+    let hn = HackerNewsSource::new();
+    let reddit = RedditSource::new(config.reddit_min_score);
+    let rss = RssSource::new();
+    let twitter = config
+        .twitter_bearer_token
+        .as_deref()
+        .map(TwitterSource::new);
+
+    let detector = Detector::new(config.clone(), store, notifiers)
+        .with_alert_buf(buf.clone());
+
+    info!("repo-radar serving on port {port} — press Ctrl-C to stop");
+
+    let poll_gh  = Duration::from_secs(config.poll_interval_secs);
+    let poll_hn  = Duration::from_secs(180);
+    let poll_rss = Duration::from_secs(config.rss_interval_secs);
+    let poll_tw  = Duration::from_secs(config.twitter_interval_secs);
+    let poll_rd  = Duration::from_secs(900);
+
+    // Run the web server concurrently with the watch loop.
+    tokio::select! {
+        res = web::start_server(buf, port) => {
+            if let Err(e) = res { tracing::error!(error = %e, "Web server error"); }
+        }
+        res = run_watch_loop(config, detector, github, hn, reddit, rss, twitter,
+                             poll_gh, poll_hn, poll_rss, poll_tw, poll_rd) => {
+            if let Err(e) = res { tracing::error!(error = %e, "Watch loop error"); }
+        }
+    }
+    Ok(())
+}
+
+async fn run_watch_loop(
+    _config: Config,
+    detector: Detector,
+    github: GitHubSource,
+    hn: HackerNewsSource,
+    reddit: RedditSource,
+    rss: RssSource,
+    twitter: Option<TwitterSource>,
+    poll_gh: Duration,
+    poll_hn: Duration,
+    poll_rss: Duration,
+    poll_tw: Duration,
+    poll_rd: Duration,
+) -> Result<()> {
+    let mut gh_interval  = time::interval(poll_gh);
+    let mut hn_interval  = time::interval(poll_hn);
     let mut rss_interval = time::interval(poll_rss);
-    let mut tw_interval = time::interval(poll_tw);
-    let mut rd_interval = time::interval(poll_rd);
+    let mut tw_interval  = time::interval(poll_tw);
+    let mut rd_interval  = time::interval(poll_rd);
 
     loop {
         tokio::select! {
@@ -127,7 +194,6 @@ async fn run_watch(config: Config) -> Result<()> {
             }
         }
     }
-
     Ok(())
 }
 

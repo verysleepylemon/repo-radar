@@ -8,6 +8,7 @@ use crate::config::Config;
 use crate::notifiers::{windows_toast, NotifierSet};
 use crate::redis_store::RedisStore;
 use crate::sources::github::GitHubSource;
+use crate::web::{push_alert, AlertBuf};
 use crate::sources::hackernews::HackerNewsSource;
 use crate::sources::reddit::RedditSource;
 use crate::sources::rss::RssSource;
@@ -99,6 +100,8 @@ pub struct Detector {
     config: Config,
     store: Option<RedisStore>,
     notifiers: NotifierSet,
+    /// Optional shared web-dashboard alert buffer.
+    alert_buf: Option<AlertBuf>,
 }
 
 impl Detector {
@@ -107,7 +110,14 @@ impl Detector {
             config,
             store,
             notifiers,
+            alert_buf: None,
         }
+    }
+
+    /// Attach a shared alert buffer so the web dashboard stays live.
+    pub fn with_alert_buf(mut self, buf: AlertBuf) -> Self {
+        self.alert_buf = Some(buf);
+        self
     }
 
     /// Scan GitHub and check each trending repo for spike signals.
@@ -367,6 +377,10 @@ impl Detector {
             let dedup_key = format!("spike:{}", alert.repo_full_name);
             let _ = s.mark_seen(&dedup_key, self.config.dedup_ttl()).await;
             let _ = s.publish_alert(alert).await;
+        }
+        // Push to web dashboard buffer if one is attached.
+        if let Some(ref buf) = self.alert_buf {
+            push_alert(buf, alert.clone()).await;
         }
         // Windows toast for Critical priority
         if alert.is_critical() {

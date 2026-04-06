@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>repo-radar — AI Tech Monitor</title>
+<style>
+/* === Reset & tokens === */
+*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:    #06040e;
+  --bg2:   #0c0a18;
+  --panel: rgba(255,255,255,0.026);
+  --pb:    rgba(255,255,255,0.07);
+  --text:  #e2e8f0;
+  --t2:    #94a3b8;
+  --muted: #475569;
+  --v:     #a78bfa;  /* violet — VIP */
+  --g:     #34d399;  /* green  — GitHub */
+  --o:     #fb923c;  /* orange — high prio */
+  --r:     #f87171;  /* red    — critical */
+  --b:     #60a5fa;  /* blue   — normal */
+  --gold:  #fbbf24;
+}
+body {
+  font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
+  background: radial-gradient(ellipse at 25% 0%,rgba(88,60,160,.13) 0%,var(--bg) 65%);
+  background-color: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.6;
+}
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--v); }
+code { font-size: 11px; color: #64748b; }
+
+/* === Header === */
+header {
+  background: rgba(6,4,14,.88);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--pb);
+  position: sticky; top: 0; z-index: 100;
+  padding: 11px 0;
+}
+.hd { max-width: 1640px; margin: 0 auto; padding: 0 20px;
+  display: flex; align-items: center; gap: 12px; }
+.logo {
+  font-size: 17px; font-weight: 700; letter-spacing: -.5px;
+  background: linear-gradient(120deg,#a78bfa,#60a5fa);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.live-b {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.25);
+  border-radius: 100px; padding: 2px 8px;
+  font-size: 10px; font-weight: 700; color: var(--g); letter-spacing: .6px;
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--g);
+  animation: blink 2s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+.hd-r { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.hd-info { font-size: 11px; color: var(--muted); }
+.hd-info strong { color: var(--t2); }
+.btn-r {
+  background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.22);
+  color: var(--v); padding: 5px 12px; border-radius: 6px; cursor: pointer;
+  font-size: 11px; font-weight: 600; transition: background .15s, border-color .15s;
+}
+.btn-r:hover { background: rgba(167,139,250,.2); border-color: rgba(167,139,250,.4); }
+
+/* === Main grid === */
+.wrap { max-width: 1640px; margin: 0 auto; padding: 0 20px; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 16px;
+  padding: 18px 0 40px;
+}
+@media (max-width:1100px) { .grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width:700px)  { .grid { grid-template-columns: 1fr; } }
+
+/* === Panel === */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--pb);
+  border-radius: 14px;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+  transition: border-color .2s;
+}
+.panel:hover { border-color: rgba(255,255,255,.11); }
+.ph {
+  padding: 14px 18px 11px;
+  border-bottom: 1px solid var(--pb);
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.ph h2 { font-size: 13px; font-weight: 600; }
+.ph-b {
+  margin-left: auto; font-size: 10px; font-weight: 700;
+  padding: 2px 9px; border-radius: 100px; letter-spacing: .4px;
+}
+.bv { background: rgba(167,139,250,.12); color: var(--v); }
+.bg { background: rgba(52,211,153,.12); color: var(--g); }
+.bo { background: rgba(251,146,60,.12); color: var(--o); }
+.ps { overflow-y: auto; flex: 1; padding: 4px 0; }
+.ps::-webkit-scrollbar { width: 4px; }
+.ps::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 2px; }
+.pf {
+  padding: 7px 18px; border-top: 1px solid var(--pb);
+  font-size: 11px; color: var(--muted); flex-shrink: 0;
+}
+.pf strong { color: var(--t2); }
+
+/* === Cards === */
+.card {
+  padding: 11px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.03);
+  cursor: pointer; transition: background .12s; position: relative;
+}
+.card:hover { background: rgba(255,255,255,.025); }
+.card:last-child { border-bottom: none; }
+.av { border-left: 2px solid var(--v); }
+.ag { border-left: 2px solid var(--g); }
+.ar { border-left: 2px solid var(--r); }
+.ao { border-left: 2px solid var(--o); }
+.ab { border-left: 2px solid var(--b); }
+.ct {
+  font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; margin-bottom: 7px; display: block;
+}
+.ct:hover { color: var(--v); }
+.cd { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; margin-bottom: 6px; }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.tag {
+  font-size: 10px; font-weight: 600; letter-spacing: .3px;
+  padding: 1px 7px; border-radius: 100px;
+}
+.ts  { background: rgba(96,165,250,.1); color: var(--b); }
+.tl  { background: rgba(167,139,250,.1); color: var(--v); }
+.tsc { background: rgba(251,146,60,.1); color: var(--o); }
+.tst { background: rgba(251,191,36,.1); color: var(--gold); }
+.tv  { background: rgba(167,139,250,.18); color: #c4b5fd; border: 1px solid rgba(167,139,250,.28); }
+.tc  { background: rgba(248,113,113,.12); color: var(--r); }
+.th  { background: rgba(251,146,60,.12); color: var(--o); }
+.tn  { background: rgba(96,165,250,.1); color: var(--b); }
+.ct-ago { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; }
+
+/* === Utility states === */
+.loading {
+  display: flex; justify-content: center; align-items: center;
+  gap: 8px; padding: 52px; color: var(--muted); font-size: 13px;
+}
+.spin {
+  width: 15px; height: 15px;
+  border: 2px solid rgba(167,139,250,.18); border-top-color: var(--v);
+  border-radius: 50%; animation: rot .7s linear infinite;
+}
+@keyframes rot { to { transform: rotate(360deg); } }
+.empty { text-align: center; padding: 52px 24px; color: var(--muted); }
+.ei { font-size: 26px; margin-bottom: 8px; }
+.empty p { font-size: 13px; }
+.empty small { font-size: 11px; color: #334155; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hd">
+    <span class="logo">🔭 repo-radar</span>
+    <span class="live-b"><span class="dot"></span>LIVE</span>
+    <div class="hd-r">
+      <span class="hd-info">Next refresh in <strong id="cd">60</strong>s &nbsp;·&nbsp; <span id="ts">loading…</span></span>
+      <button class="btn-r" onclick="doRefresh()">↺ Refresh</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+
+    <!-- VIP AI Feed -->
+    <div class="panel">
+      <div class="ph">
+        <span>🧬</span>
+        <h2>VIP AI / Tech Feed</h2>
+        <span class="ph-b bv">AI · coding · VIP</span>
+      </div>
+      <div class="ps" id="vip-p"><div class="loading"><div class="spin"></div>Loading…</div></div>
+      <div class="pf">Source: <strong>Hacker News</strong> · filtered for AI &amp; VIP</div>
+    </div>
+
+    <!-- GitHub Trending -->
+    <div class="panel">
+      <div class="ph">
+        <span>🔥</span>
+        <h2>GitHub Trending</h2>
+        <span class="ph-b bg">New &amp; popular</span>
+      </div>
+      <div class="ps" id="git-p"><div class="loading"><div class="spin"></div>Loading…</div></div>
+      <div class="pf">Source: <strong>GitHub API</strong> · created in last 30 days</div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="panel">
+      <div class="ph">
+        <span>🚨</span>
+        <h2>Recent Alerts</h2>
+        <span class="ph-b bo" id="ab">0 alerts</span>
+      </div>
+      <div class="ps" id="alert-p"><div class="loading"><div class="spin"></div>Loading…</div></div>
+      <div class="pf">From <strong>repo-radar watch</strong> · run watch to populate</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── helpers ───────────────────────────────────────────────────────────────────
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const kfmt = n => !n ? '0' : n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+function ago(ts) {
+  if (!ts) return '';
+  const s = Math.floor(Date.now()/1000) - (typeof ts === 'string' ? Math.floor(new Date(ts).getTime()/1000) : ts);
+  if (s < 60)    return 'just now';
+  if (s < 3600)  return Math.floor(s/60)+'m ago';
+  if (s < 86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+}
+
+// ── renderers ─────────────────────────────────────────────────────────────────
+function renderVip(items) {
+  if (!items || !items.length)
+    return `<div class="empty"><div class="ei">🧬</div><p>No AI/tech stories right now</p></div>`;
+  return items.map(it => {
+    const ac = it.vip_match ? 'av' : 'ab';
+    const vt = it.vip_match ? `<span class="tag tv">★ ${esc(it.vip_match)}</span>` : '';
+    const st = it.score   ? `<span class="tag tsc">▲ ${it.score}</span>` : '';
+    const bt = it.by      ? `<span class="tag ts">@${esc(it.by)}</span>` : '';
+    return `<div class="card ${ac}" onclick="window.open('${esc(it.url)}','_blank')">
+      <a class="ct" href="${esc(it.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(it.title)}</a>
+      <div class="tags">${vt}${st}${bt}<span class="ct-ago">${ago(it.time)}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function renderTrending(items) {
+  if (!items || !items.length)
+    return `<div class="empty"><div class="ei">🔥</div><p>No trending repos found</p></div>`;
+  return items.map(r => {
+    const desc = r.description ? `<div class="cd">${esc(r.description)}</div>` : '';
+    const lang = r.language   ? `<span class="tag tl">${esc(r.language)}</span>` : '';
+    return `<div class="card ag" onclick="window.open('${esc(r.html_url)}','_blank')">
+      <a class="ct" href="${esc(r.html_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(r.full_name)}</a>
+      ${desc}
+      <div class="tags"><span class="tag tst">★ ${kfmt(r.stargazers_count)}</span>${lang}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderAlerts(items) {
+  document.getElementById('ab').textContent = `${items && items.length || 0} alert${items && items.length === 1 ? '' : 's'}`;
+  if (!items || !items.length)
+    return `<div class="empty"><div class="ei">✅</div><p>No alerts yet</p><small>Run <code>repo-radar serve</code> to start watching</small></div>`;
+  return items.map(a => {
+    const p = (a.priority || 'Normal').toLowerCase();
+    const ac = p === 'critical' ? 'ar' : p === 'high' ? 'ao' : 'ab';
+    const pt = p === 'critical' ? `<span class="tag tc">⚠ CRITICAL</span>` :
+               p === 'high'     ? `<span class="tag th">↑ HIGH</span>` :
+                                  `<span class="tag tn">→ NORMAL</span>`;
+    const src = typeof a.source === 'string' ? a.source : (a.source?.RssFeed || 'Unknown');
+    const lg = a.language      ? `<span class="tag tl">${esc(a.language)}</span>` : '';
+    const st = a.stars_now     ? `<span class="tag tst">★ ${kfmt(a.stars_now)}</span>` : '';
+    const gn = a.stars_gained_24h ? `<span class="tag tsc">+${kfmt(a.stars_gained_24h)}</span>` : '';
+    return `<div class="card ${ac}" onclick="window.open('${esc(a.url||'#')}','_blank')">
+      <a class="ct" href="${esc(a.url||'#')}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(a.repo_full_name)}</a>
+      <div class="tags">${pt}${st}${gn}${lg}<span class="tag ts">${esc(src)}</span><span class="ct-ago">${ago(a.detected_at)}</span></div>
+    </div>`;
+  }).join('');
+}
+
+// ── data loading ──────────────────────────────────────────────────────────────
+async function load(url, panelId, fn) {
+  const el = document.getElementById(panelId);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    el.innerHTML = fn(await r.json());
+  } catch(e) {
+    el.innerHTML = `<div class="empty"><div class="ei">⚠️</div><p>Failed to load</p><small>${esc(e.message)}</small></div>`;
+  }
+}
+
+function doRefresh() {
+  resetCD();
+  Promise.all([
+    load('/api/vip',      'vip-p',   renderVip),
+    load('/api/trending', 'git-p',   renderTrending),
+    load('/api/alerts',   'alert-p', renderAlerts),
+  ]).then(() => {
+    document.getElementById('ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  });
+}
+
+// ── countdown ─────────────────────────────────────────────────────────────────
+let cdVal = 60;
+function resetCD() { cdVal = 60; document.getElementById('cd').textContent = cdVal; }
+setInterval(() => {
+  cdVal--;
+  document.getElementById('cd').textContent = Math.max(0, cdVal);
+  if (cdVal <= 0) doRefresh();
+}, 1000);
+
+doRefresh();
+</script>
+</body>
+</html>
