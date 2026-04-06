@@ -89,4 +89,13 @@ impl RedisStore {
             .collect();
         Ok(alerts)
     }
+
+    /// Read up to `count` raw JSON strings from any Redis list key.
+    /// Used by the web layer to fetch Python-scanner findings from
+    /// `repo-radar:secrets` without exposing `manager` publicly.
+    pub async fn get_raw_list(&self, key: &str, count: isize) -> Result<Vec<String>> {
+        let mut conn = self.manager.clone();
+        let items: Vec<String> = conn.lrange(key, 0, count - 1).await?;
+        Ok(items)
+    }
 }

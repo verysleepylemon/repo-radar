@@ -124,6 +124,7 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
         .as_deref()
         .map(TwitterSource::new);
 
+    let store_web = store.clone();
     let detector = Detector::new(config.clone(), store, notifiers)
         .with_alert_buf(buf.clone());
 
@@ -145,7 +146,7 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
 
     // Run the web server concurrently with the watch loop.
     tokio::select! {
-        res = web::start_server(buf, findings, port) => {
+        res = web::start_server(buf, findings, store_web, port) => {
             if let Err(e) = res { tracing::error!(error = %e, "Web server error"); }
         }
         res = run_watch_loop(config, detector, github, hn, reddit, rss, twitter,

@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
 use crate::detector::Alert;
-use crate::secret_scanner::{FindingsBuf, SecretFinding};
+use crate::secret_scanner::FindingsBuf;
 
 pub const MAX_ALERT_BUF: usize = 100;
 
@@ -121,16 +121,17 @@ const AI_KEYWORDS: &[&str] = &[
 
 #[derive(Clone)]
 pub struct WebState {
-    pub alerts:   AlertBuf,
-    pub findings: FindingsBuf,
-    pub http:     reqwest::Client,
-    vip_cache:    Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
-    trend_cache:  Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
-    leak_cache:   Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
+    pub alerts:      AlertBuf,
+    pub findings:    FindingsBuf,
+    pub http:        reqwest::Client,
+    pub redis_store: Option<crate::redis_store::RedisStore>,
+    vip_cache:       Arc<RwLock<Option<(Instant, Vec<VipItem>)>>>,
+    trend_cache:     Arc<RwLock<Option<(Instant, serde_json::Value)>>>,
+    leak_cache:      Arc<RwLock<Option<(Instant, Vec<LeakItem>)>>>,
 }
 
 impl WebState {
-    pub fn new(alerts: AlertBuf, findings: FindingsBuf) -> Self {
+    pub fn new(alerts: AlertBuf, findings: FindingsBuf, redis_store: Option<crate::redis_store::RedisStore>) -> Self {
         let http = reqwest::Client::builder()
             .user_agent("repo-radar/1.0 (github.com/lemwaiping123-eng/repo-radar)")
             .timeout(Duration::from_secs(12))
@@ -140,9 +141,10 @@ impl WebState {
             alerts,
             findings,
             http,
-            vip_cache:    Arc::new(RwLock::new(None)),
-            trend_cache:  Arc::new(RwLock::new(None)),
-            leak_cache:   Arc::new(RwLock::new(None)),
+            redis_store,
+            vip_cache:       Arc::new(RwLock::new(None)),
+            trend_cache:     Arc::new(RwLock::new(None)),
+            leak_cache:      Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -192,9 +194,36 @@ async fn api_alerts(State(s): State<Arc<WebState>>) -> Json<Vec<Alert>> {
     Json(g.iter().cloned().collect())
 }
 
-async fn api_secrets(State(s): State<Arc<WebState>>) -> Json<Vec<SecretFinding>> {
-    let g = s.findings.read().await;
-    Json(g.iter().cloned().collect())
+async fn api_secrets(State(s): State<Arc<WebState>>) -> Json<Vec<serde_json::Value>> {
+    // Rust in-memory findings
+    let rust_findings: Vec<serde_json::Value> = {
+        let g = s.findings.read().await;
+        g.iter().filter_map(|f| serde_json::to_value(f).ok()).collect()
+    };
+
+    // Python scanner findings from Redis repo-radar:secrets
+    let mut redis_findings: Vec<serde_json::Value> = Vec::new();
+    if let Some(store) = &s.redis_store {
+        if let Ok(items) = store.get_raw_list("repo-radar:secrets", 500).await {
+            for item in items {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&item) {
+                    redis_findings.push(v);
+                }
+            }
+        }
+    }
+
+    // Merge both sources, dedup by id field
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut merged: Vec<serde_json::Value> =
+        Vec::with_capacity(rust_findings.len() + redis_findings.len());
+    for f in rust_findings.into_iter().chain(redis_findings) {
+        let id = f.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if id.is_empty() || seen_ids.insert(id) {
+            merged.push(f);
+        }
+    }
+    Json(merged)
 }
 
 async fn api_vip(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
@@ -446,8 +475,8 @@ async fn search_leaked_repos(http: &reqwest::Client) -> Result<Vec<LeakItem>> {
 // ─── Server startup ───────────────────────────────────────────────────────────
 
 /// Start the HTTP server.  Blocks until the server exits.
-pub async fn start_server(alerts: AlertBuf, findings: FindingsBuf, port: u16) -> Result<()> {
-    let state = Arc::new(WebState::new(alerts, findings));
+pub async fn start_server(alerts: AlertBuf, findings: FindingsBuf, redis_store: Option<crate::redis_store::RedisStore>, port: u16) -> Result<()> {
+    let state = Arc::new(WebState::new(alerts, findings, redis_store));
 
     let app = Router::new()
         .route("/", get(serve_dashboard))
