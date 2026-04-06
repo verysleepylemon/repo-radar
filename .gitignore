@@ -3,3 +3,5 @@ target2/
 *.pyc
 __pycache__/
 replications/
+rr-stdout.log
+rr-stderr.log
