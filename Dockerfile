@@ -1,5 +1,5 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM rust:1.81-slim AS builder
+FROM rust:slim AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config \

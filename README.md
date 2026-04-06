@@ -7,7 +7,7 @@ Never miss the next viral project.
 
 [![CI](https://github.com/lemwaiping123-eng/repo-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/lemwaiping123-eng/repo-radar/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.81+-orange?logo=rust)](https://rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-1.85+-orange?logo=rust)](https://rust-lang.org)
 
 ---
 
