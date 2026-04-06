@@ -10,6 +10,9 @@ use repo_radar::notifiers::NotifierSet;
 use repo_radar::redis_store::RedisStore;
 use repo_radar::sources::github::GitHubSource;
 use repo_radar::sources::hackernews::HackerNewsSource;
+use repo_radar::sources::reddit::RedditSource;
+use repo_radar::sources::rss::RssSource;
+use repo_radar::sources::twitter::TwitterSource;
 
 #[derive(Parser)]
 #[command(
@@ -56,19 +59,38 @@ async fn main() -> Result<()> {
 }
 
 async fn run_watch(config: Config) -> Result<()> {
-    let store = RedisStore::connect(&config.redis_url).await?;
+    let store = RedisStore::try_connect(&config.redis_url).await;
+    if store.is_none() {
+        eprintln!("⚠️  Redis not available — running without dedup/persistence. Install Redis or set REDIS_URL.");
+    }
     let notifiers = NotifierSet::from_config(&config);
     let github = GitHubSource::new(&config)?;
     let hn = HackerNewsSource::new();
+    let reddit = RedditSource::new(config.reddit_min_score);
+    let rss = RssSource::new();
+    let twitter = config
+        .twitter_bearer_token
+        .as_deref()
+        .map(TwitterSource::new);
+
     let detector = Detector::new(config.clone(), store, notifiers);
 
     info!("repo-radar watching... press Ctrl-C to stop");
+    if twitter.is_none() {
+        info!("Twitter/X source disabled (set TWITTER_BEARER_TOKEN to enable)");
+    }
 
-    let poll_gh = Duration::from_secs(config.poll_interval_secs);
-    let poll_hn = Duration::from_secs(180); // HN every 3 min
+    let poll_gh   = Duration::from_secs(config.poll_interval_secs);
+    let poll_hn   = Duration::from_secs(180);
+    let poll_rss  = Duration::from_secs(config.rss_interval_secs);
+    let poll_tw   = Duration::from_secs(config.twitter_interval_secs);
+    let poll_rd   = Duration::from_secs(900);
 
     let mut gh_interval = time::interval(poll_gh);
     let mut hn_interval = time::interval(poll_hn);
+    let mut rss_interval = time::interval(poll_rss);
+    let mut tw_interval = time::interval(poll_tw);
+    let mut rd_interval = time::interval(poll_rd);
 
     loop {
         tokio::select! {
@@ -82,6 +104,23 @@ async fn run_watch(config: Config) -> Result<()> {
                     tracing::warn!(error = %e, "HN scan error");
                 }
             }
+            _ = rss_interval.tick() => {
+                if let Err(e) = detector.scan_rss(&rss).await {
+                    tracing::warn!(error = %e, "RSS scan error");
+                }
+            }
+            _ = rd_interval.tick() => {
+                if let Err(e) = detector.scan_reddit(&reddit).await {
+                    tracing::warn!(error = %e, "Reddit scan error");
+                }
+            }
+            _ = tw_interval.tick() => {
+                if let Some(ref tw) = twitter {
+                    if let Err(e) = detector.scan_twitter(tw).await {
+                        tracing::warn!(error = %e, "Twitter scan error");
+                    }
+                }
+            }
             _ = tokio::signal::ctrl_c() => {
                 info!("Shutting down");
                 break;
@@ -93,7 +132,7 @@ async fn run_watch(config: Config) -> Result<()> {
 }
 
 async fn run_check(config: Config, repo: &str) -> Result<()> {
-    let store = RedisStore::connect(&config.redis_url).await?;
+    let store = RedisStore::try_connect(&config.redis_url).await;
     let notifiers = NotifierSet::from_config(&config);
     let github = GitHubSource::new(&config)?;
     let detector = Detector::new(config, store, notifiers);
@@ -114,7 +153,13 @@ async fn run_check(config: Config, repo: &str) -> Result<()> {
 }
 
 async fn run_status(config: Config) -> Result<()> {
-    let store = RedisStore::connect(&config.redis_url).await?;
+    let store = match RedisStore::try_connect(&config.redis_url).await {
+        Some(s) => s,
+        None => {
+            println!("Redis unavailable — no stored alerts to show.");
+            return Ok(());
+        }
+    };
     let alerts = store.get_recent_alerts(20).await?;
 
     if alerts.is_empty() {

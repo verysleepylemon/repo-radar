@@ -23,6 +23,18 @@ impl RedisStore {
         Ok(Self { manager })
     }
 
+    /// Connect to Redis, returning `None` (with a warning) if unavailable.
+    /// This allows repo-radar to run without Redis installed.
+    pub async fn try_connect(url: &str) -> Option<Self> {
+        match Self::connect(url).await {
+            Ok(store) => Some(store),
+            Err(e) => {
+                warn!(error = %e, "Redis unavailable — running with in-memory dedup only");
+                None
+            }
+        }
+    }
+
     /// Check if a dedup key was already seen (returns false on Redis errors to avoid blocking).
     pub async fn is_seen(&self, key: &str) -> Result<bool> {
         let mut conn = self.manager.clone();

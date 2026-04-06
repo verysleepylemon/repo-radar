@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
 
-use crate::detector::Alert;
+use crate::detector::{Alert, AlertPriority, AlertSource};
 
 /// Posts a rich Discord embed when a trending spike is detected.
 #[derive(Clone)]
@@ -20,27 +20,58 @@ impl DiscordNotifier {
     }
 
     pub async fn send(&self, alert: &Alert) -> Result<()> {
-        let color = if alert.score >= 1000.0 {
-            0xFF4444 // red — extreme spike
-        } else if alert.score >= 500.0 {
-            0xFFAA00 // orange — hot
+        let color: u32 = match alert.priority {
+            AlertPriority::Critical => 0xFF0000, // red — sensitive content
+            AlertPriority::High => 0xFF4444,
+            AlertPriority::Normal if alert.score >= 1000.0 => 0xFFAA00,
+            _ => 0x00BBFF,
+        };
+
+        let (title_emoji, source_label) = match &alert.source {
+            AlertSource::GitHubTrending | AlertSource::SpikeDetected => ("🚀", alert.source.to_string()),
+            AlertSource::HackerNews => ("🟠", "Hacker News".to_string()),
+            AlertSource::Twitter => ("🐦", "Twitter / X".to_string()),
+            AlertSource::Reddit => ("📱", "Reddit".to_string()),
+            AlertSource::RssFeed(name) => ("📰", format!("RSS: {}", name)),
+        };
+
+        let sensitive_note = if alert.is_critical() {
+            "\n\n🚨 **SENSITIVE / POTENTIALLY CENSORED CONTENT**"
         } else {
-            0x00BBFF // blue — notable
+            ""
+        };
+
+        let description = format!(
+            "{}{}",
+            alert.description.as_deref().unwrap_or("No description"),
+            sensitive_note
+        );
+
+        // Field labels adapt to the source type
+        let (f1_name, f1_val, f2_name, f2_val) = if alert.is_github() {
+            (
+                "⭐ Stars now", alert.stars_now.to_string(),
+                "📈 Stars (24h)", format!("+{}", alert.stars_gained_24h),
+            )
+        } else {
+            (
+                "👍 Likes/Upvotes", alert.stars_now.to_string(),
+                "🔁 Shares/RTs", alert.forks.to_string(),
+            )
         };
 
         let body = json!({
             "embeds": [{
-                "title": format!("🚀 {}", alert.repo_full_name),
+                "title": format!("{} {}", title_emoji, alert.repo_full_name.chars().take(80).collect::<String>()),
                 "url": alert.url,
-                "description": alert.description.as_deref().unwrap_or("No description"),
+                "description": description.chars().take(300).collect::<String>(),
                 "color": color,
                 "fields": [
-                    {"name": "⭐ Stars now", "value": alert.stars_now.to_string(), "inline": true},
-                    {"name": "📈 Stars (24h)", "value": format!("+{}", alert.stars_gained_24h), "inline": true},
-                    {"name": "🍴 Forks", "value": alert.forks.to_string(), "inline": true},
-                    {"name": "💻 Language", "value": alert.language.as_deref().unwrap_or("Unknown"), "inline": true},
+                    {"name": f1_name, "value": f1_val, "inline": true},
+                    {"name": f2_name, "value": f2_val, "inline": true},
+                    {"name": "🌍 Platform", "value": alert.language.as_deref().unwrap_or("Unknown"), "inline": true},
                     {"name": "📊 Score", "value": format!("{:.0}", alert.score), "inline": true},
-                    {"name": "🔎 Source", "value": format!("{:?}", alert.source), "inline": true},
+                    {"name": "🔎 Source", "value": source_label, "inline": true},
                 ],
                 "timestamp": alert.detected_at.to_rfc3339(),
                 "footer": {"text": "repo-radar • real-time trend detection"}

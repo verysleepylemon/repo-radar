@@ -47,6 +47,26 @@ pub struct Config {
     /// Override HN Algolia base URL (used in tests via mockito)
     #[arg(skip)]
     pub hn_api_base: Option<String>,
+
+    /// Twitter / X bearer token — enables Twitter source when set
+    #[arg(long, env = "TWITTER_BEARER_TOKEN")]
+    pub twitter_bearer_token: Option<String>,
+
+    /// Minimum Reddit post score to trigger an alert
+    #[arg(long, env = "REDDIT_MIN_SCORE", default_value_t = 100)]
+    pub reddit_min_score: u64,
+
+    /// RSS feed polling interval in seconds
+    #[arg(long, env = "RSS_INTERVAL_SECS", default_value_t = 600)]
+    pub rss_interval_secs: u64,
+
+    /// Twitter polling interval in seconds
+    #[arg(long, env = "TWITTER_INTERVAL_SECS", default_value_t = 900)]
+    pub twitter_interval_secs: u64,
+
+    /// Override Twitter API base URL (used in tests)
+    #[arg(skip)]
+    pub twitter_api_base: Option<String>,
 }
 
 impl Config {

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::json;
 
-use crate::detector::Alert;
+use crate::detector::{Alert, AlertPriority, AlertSource};
 
 /// Sends a Telegram message via Bot API when a trending spike is detected.
 #[derive(Clone)]
@@ -22,30 +22,41 @@ impl TelegramNotifier {
     }
 
     pub async fn send(&self, alert: &Alert) -> Result<()> {
-        let stars_emoji = if alert.stars_gained_24h >= 1000 {
-            "🔥🔥🔥"
-        } else if alert.stars_gained_24h >= 500 {
-            "🔥🔥"
-        } else {
-            "🔥"
+        let header_emoji = match alert.priority {
+            AlertPriority::Critical => "🚨",
+            AlertPriority::High => "🔴",
+            AlertPriority::Normal => match &alert.source {
+                AlertSource::GitHubTrending | AlertSource::SpikeDetected => "🚀",
+                AlertSource::HackerNews => "🟠",
+                AlertSource::Twitter => "🐦",
+                AlertSource::Reddit => "📱",
+                AlertSource::RssFeed(_) => "📰",
+            },
         };
 
+        let sensitive_banner = if alert.is_critical() {
+            "🚨 *SENSITIVE / POTENTIALLY CENSORED*\n"
+        } else {
+            ""
+        };
+
+        let desc = alert.description.as_deref().unwrap_or("No description");
+
         let text = format!(
-            "{stars_emoji} *{repo}*\n\
+            "{emoji} *{title}*\n\
+             {banner}\
              _{desc}_\n\n\
-             ⭐ {stars_now} stars (+{gained} in 24h)\n\
-             🍴 {forks} forks  |  💻 {lang}\n\
-             📊 Score: {score:.0}  |  🔎 {source:?}\n\n\
+             👍 {likes}  🔁 {shares}  📊 {score:.0}\n\
+             🔎 {source}\n\n\
              🔗 {url}",
-            stars_emoji = stars_emoji,
-            repo = escape_markdown(&alert.repo_full_name),
-            desc = escape_markdown(alert.description.as_deref().unwrap_or("No description")),
-            stars_now = alert.stars_now,
-            gained = alert.stars_gained_24h,
-            forks = alert.forks,
-            lang = alert.language.as_deref().unwrap_or("Unknown"),
+            emoji = header_emoji,
+            title = escape_markdown(&alert.repo_full_name.chars().take(80).collect::<String>()),
+            banner = sensitive_banner,
+            desc = escape_markdown(&desc.chars().take(200).collect::<String>()),
+            likes = alert.stars_now,
+            shares = alert.forks,
             score = alert.score,
-            source = alert.source,
+            source = escape_markdown(&alert.source.to_string()),
             url = alert.url,
         );
 

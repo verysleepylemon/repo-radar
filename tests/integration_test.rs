@@ -1,7 +1,7 @@
 use mockito::Server;
 use repo_radar::{
     config::Config,
-    detector::{Alert, AlertSource},
+    detector::{Alert, AlertPriority, AlertSource},
     sources::github::GitHubSource,
     sources::hackernews::HackerNewsSource,
 };
@@ -19,6 +19,11 @@ fn test_config(server_url: &str) -> Config {
         dedup_ttl_hours: 1,
         github_api_base: Some(server_url.to_string()),
         hn_api_base: None,
+        twitter_bearer_token: None,
+        reddit_min_score: 100,
+        rss_interval_secs: 600,
+        twitter_interval_secs: 900,
+        twitter_api_base: None,
     }
 }
 
@@ -137,6 +142,7 @@ fn test_alert_serde_roundtrip() {
         detected_at: chrono::Utc::now(),
         source: AlertSource::SpikeDetected,
         url: "https://github.com/test/repo".to_string(),
+        priority: AlertPriority::Normal,
     };
 
     let json = serde_json::to_string(&alert).expect("serialization failed");

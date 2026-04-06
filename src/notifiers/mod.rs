@@ -1,5 +1,6 @@
 pub mod discord;
 pub mod telegram;
+pub mod windows_toast;
 
 use tracing::warn;
 
