@@ -35,7 +35,7 @@ impl RedisStore {
     pub async fn mark_seen(&self, key: &str, ttl: Duration) -> Result<()> {
         let mut conn = self.manager.clone();
         let full_key = format!("repo-radar:seen:{}", key);
-        let ttl_secs = ttl.as_secs() as u64;
+        let ttl_secs = ttl.as_secs();
         conn.set_ex::<_, _, ()>(&full_key, 1u8, ttl_secs).await?;
         debug!(key = %full_key, ttl_secs, "Marked as seen");
         Ok(())
