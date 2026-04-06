@@ -28,7 +28,9 @@ impl DiscordNotifier {
         };
 
         let (title_emoji, source_label) = match &alert.source {
-            AlertSource::GitHubTrending | AlertSource::SpikeDetected => ("🚀", alert.source.to_string()),
+            AlertSource::GitHubTrending | AlertSource::SpikeDetected => {
+                ("🚀", alert.source.to_string())
+            }
             AlertSource::HackerNews => ("🟠", "Hacker News".to_string()),
             AlertSource::Twitter => ("🐦", "Twitter / X".to_string()),
             AlertSource::Reddit => ("📱", "Reddit".to_string()),
@@ -50,13 +52,17 @@ impl DiscordNotifier {
         // Field labels adapt to the source type
         let (f1_name, f1_val, f2_name, f2_val) = if alert.is_github() {
             (
-                "⭐ Stars now", alert.stars_now.to_string(),
-                "📈 Stars (24h)", format!("+{}", alert.stars_gained_24h),
+                "⭐ Stars now",
+                alert.stars_now.to_string(),
+                "📈 Stars (24h)",
+                format!("+{}", alert.stars_gained_24h),
             )
         } else {
             (
-                "👍 Likes/Upvotes", alert.stars_now.to_string(),
-                "🔁 Shares/RTs", alert.forks.to_string(),
+                "👍 Likes/Upvotes",
+                alert.stars_now.to_string(),
+                "🔁 Shares/RTs",
+                alert.forks.to_string(),
             )
         };
 

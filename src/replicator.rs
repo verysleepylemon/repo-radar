@@ -14,12 +14,12 @@
 //!
 //! Errors are non-fatal: they are logged as warnings and the caller continues.
 
-use std::collections::HashSet;
-use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use anyhow::Result;
 use serde_json::json;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::web::LeakItem;
@@ -49,22 +49,26 @@ pub fn new_seen_replications() -> SeenReplications {
 /// Handles one replication job.  Cheap to clone — wraps `Arc` internally.
 #[derive(Clone)]
 pub struct Replicator {
-    http:    reqwest::Client,
+    http: reqwest::Client,
     api_key: Option<String>,
-    model:   String,
+    model: String,
 }
 
 impl Replicator {
     pub fn new(http: reqwest::Client) -> Self {
         let api_key = std::env::var("OPENROUTER_API_KEY").ok();
-        let model   = std::env::var("REPLICATOR_MODEL")
-                        .unwrap_or_else(|_| DEFAULT_FREE_MODEL.to_string());
+        let model =
+            std::env::var("REPLICATOR_MODEL").unwrap_or_else(|_| DEFAULT_FREE_MODEL.to_string());
         if api_key.is_some() {
             info!(model = %model, "Replicator ready — OpenRouter LLM port generation enabled");
         } else {
             info!("Replicator ready — set OPENROUTER_API_KEY to enable LLM port generation");
         }
-        Self { http, api_key, model }
+        Self {
+            http,
+            api_key,
+            model,
+        }
     }
 
     /// Fire-and-forget entry point.  Spawned as a background task.
@@ -78,7 +82,9 @@ impl Replicator {
 
     async fn try_replicate(&self, leak: &LeakItem) -> Result<()> {
         // Sanitise leak.id for use as a directory name.
-        let safe_id = leak.id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
+        let safe_id = leak
+            .id
+            .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-");
         let out_path = PathBuf::from(OUT_DIR).join(&safe_id);
         tokio::fs::create_dir_all(&out_path).await?;
 
@@ -89,35 +95,35 @@ impl Replicator {
 
         // ── Step 2: clone the source repo ─────────────────────────────────────
         let clone_dir = out_path.join("source");
-        let cloned   = self.git_clone(&leak.repo_url, &clone_dir).await;
+        let cloned = self.git_clone(&leak.repo_url, &clone_dir).await;
 
         // ── Step 3: build source context for LLM ─────────────────────────────
         let source_ctx = if cloned {
             self.summarise_source(&clone_dir).await.unwrap_or_default()
         } else {
             // Fall back to description + root_cause when clone fails.
-            format!("// Description:\n// {}\n\n// Root cause:\n// {}",
-                leak.description, leak.root_cause)
+            format!(
+                "// Description:\n// {}\n\n// Root cause:\n// {}",
+                leak.description, leak.root_cause
+            )
         };
 
         // ── Step 4: LLM port generation ───────────────────────────────────────
         let scaffold = match &self.api_key {
-            Some(key) => {
-                self.generate_port(leak, &source_ctx, key).await
-                    .unwrap_or_else(|e| {
-                        warn!(error = %e, "LLM call failed; writing placeholder");
-                        placeholder_comment(leak)
-                    })
-            }
+            Some(key) => self
+                .generate_port(leak, &source_ctx, key)
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(error = %e, "LLM call failed; writing placeholder");
+                    placeholder_comment(leak)
+                }),
             None => placeholder_comment(leak),
         };
 
         // ── Step 5: write output ───────────────────────────────────────────────
         let target_lang = leak.language.as_deref().unwrap_or("TypeScript");
-        let scaffold_file = out_path.join(format!(
-            "{}_to_rust_port.rs",
-            target_lang.to_lowercase()
-        ));
+        let scaffold_file =
+            out_path.join(format!("{}_to_rust_port.rs", target_lang.to_lowercase()));
         tokio::fs::write(&scaffold_file, &scaffold).await?;
 
         println!("🔄 Replication saved → {}", out_path.display());
@@ -130,7 +136,7 @@ impl Replicator {
     }
 
     /// Clone `repo_url` into `target`, depth=1.  Returns true on success.
-    async fn git_clone(&self, repo_url: &str, target: &PathBuf) -> bool {
+    async fn git_clone(&self, repo_url: &str, target: &Path) -> bool {
         info!(url = %repo_url, target = %target.display(), "git clone --depth 1");
         matches!(
             tokio::process::Command::new("git")
@@ -143,11 +149,12 @@ impl Replicator {
     }
 
     /// Walk the cloned directory and build a compact source summary (≤ MAX_CONTEXT_BYTES).
-    async fn summarise_source(&self, dir: &PathBuf) -> Result<String> {
-        const EXTS: &[&str] = &["ts", "js", "py", "go", "rs", "java", "cs", "cpp", "rb",
-                                  "swift", "kt", "zig"];
+    async fn summarise_source(&self, dir: &Path) -> Result<String> {
+        const EXTS: &[&str] = &[
+            "ts", "js", "py", "go", "rs", "java", "cs", "cpp", "rb", "swift", "kt", "zig",
+        ];
         let mut summary = String::new();
-        let mut stack   = vec![dir.clone()];
+        let mut stack = vec![dir.to_path_buf()];
 
         'outer: while let Some(current) = stack.pop() {
             let mut entries = match tokio::fs::read_dir(&current).await {
@@ -159,21 +166,28 @@ impl Replicator {
                 if path.is_dir() {
                     // Skip hidden / dependency directories.
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if !name.starts_with('.') && name != "node_modules"
-                        && name != "vendor" && name != "target" {
+                    if !name.starts_with('.')
+                        && name != "node_modules"
+                        && name != "vendor"
+                        && name != "target"
+                    {
                         stack.push(path);
                     }
                     continue;
                 }
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if !EXTS.contains(&ext) { continue; }
+                if !EXTS.contains(&ext) {
+                    continue;
+                }
 
                 if let Ok(content) = tokio::fs::read_to_string(&path).await {
                     let preview: String = content.lines().take(150).collect::<Vec<_>>().join("\n");
                     let header = format!("\n// ═══ {} ═══\n", path.display());
                     summary.push_str(&header);
                     summary.push_str(&preview);
-                    if summary.len() >= MAX_CONTEXT_BYTES { break 'outer; }
+                    if summary.len() >= MAX_CONTEXT_BYTES {
+                        break 'outer;
+                    }
                 }
             }
         }
@@ -187,7 +201,7 @@ impl Replicator {
         source_ctx: &str,
         api_key: &str,
     ) -> Result<String> {
-        let src_lang    = leak.language.as_deref().unwrap_or("TypeScript");
+        let src_lang = leak.language.as_deref().unwrap_or("TypeScript");
         let prompt = format!(
             "You are an expert systems programmer specialising in Rust.\n\
              A leaked {src_lang} project has been publicly discovered: \"{name}\".\n\
@@ -207,10 +221,10 @@ impl Replicator {
              - Include a `Cargo.toml` dependency block as the opening comment.\n\
              - Add inline comments explaining non-obvious logic.\n\
              - Output ONLY valid Rust code — no markdown fences, no extra prose.",
-            name  = leak.name,
-            desc  = leak.description,
+            name = leak.name,
+            desc = leak.description,
             cause = leak.root_cause,
-            ctx   = &source_ctx[..source_ctx.len().min(MAX_CONTEXT_BYTES)],
+            ctx = &source_ctx[..source_ctx.len().min(MAX_CONTEXT_BYTES)],
         );
 
         let payload = json!({
@@ -219,10 +233,14 @@ impl Replicator {
             "max_tokens": 4096,
         });
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(OPENROUTER_URL)
             .header("Authorization", format!("Bearer {api_key}"))
-            .header("HTTP-Referer", "https://github.com/lemwaiping123-eng/repo-radar")
+            .header(
+                "HTTP-Referer",
+                "https://github.com/lemwaiping123-eng/repo-radar",
+            )
             .header("X-Title", "repo-radar auto-replicator")
             .json(&payload)
             .send()
@@ -255,7 +273,7 @@ fn placeholder_comment(leak: &LeakItem) -> String {
          fn main() {{}}\n",
         name = leak.name,
         lang = leak.language.as_deref().unwrap_or("Unknown"),
-        url  = leak.repo_url,
+        url = leak.repo_url,
         desc = leak.description.lines().next().unwrap_or(""),
     )
 }

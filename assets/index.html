@@ -266,6 +266,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <button class="tab-btn" data-tab="trending" onclick="switchTab('trending')">🔥 Trending <span class="tab-cnt" id="cnt-trending">…</span></button>
       <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts')">🚨 Alerts <span class="tab-cnt" id="cnt-alerts">0</span></button>
       <button class="tab-btn" data-tab="secrets" onclick="switchTab('secrets')">🔑 Secrets <span class="tab-cnt" id="cnt-secrets" style="background:rgba(248,113,113,.15);color:#f85149">0</span></button>
+      <button class="tab-btn" data-tab="feed" onclick="switchTab('feed')">🌍 World Feed <span class="tab-cnt" id="cnt-feed">…</span></button>
     </div>
     <div class="gh-nav-r">
       <span class="gh-time">↺ <strong><span id="cd">60</span>s</strong> &nbsp;·&nbsp; <span id="ts">loading…</span></span>
@@ -296,6 +297,11 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
     <div id="tab-alerts" class="tab-panel">
       <div class="list-hdr"><span>🚨</span><h2>Recent Alerts</h2><span class="list-cnt-b" id="alert-cnt-h">…</span><span class="list-src">repo-radar watch loop</span></div>
       <div id="alert-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
+    </div>
+    <!-- World Feed -->
+    <div id="tab-feed" class="tab-panel">
+      <div class="list-hdr"><span>🌍</span><h2>World Feed</h2><span class="list-cnt-b" id="feed-cnt-h">…</span><span class="list-src">HN · Reddit · dual-tier: 🔴 Critical &amp; ⚪ Normal</span></div>
+      <div id="feed-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
     </div>
     <!-- Secrets -->
     <div id="tab-secrets" class="tab-panel">
@@ -506,6 +512,42 @@ function renderSecretDetail(f) {
 <div class="action-row"><a class="btn-p" href="${E(f.disclosure_url)}" target="_blank" rel="noopener">📨 Open Disclosure Issue ↗</a><a class="btn-s" href="${E(f.commit_url)}" target="_blank" rel="noopener">View Commit ↗</a><a class="btn-s" href="${E(f.repo_url)}" target="_blank" rel="noopener">View Repo ↗</a></div>`;
 }
 function selSecret(el, idx) { selectRow(el, renderSecretDetail(secretData[idx])); }
+
+/* ── World Feed ── */
+let feedData = [];
+function renderFeedCard(item, idx) {
+  const isCrit = item.tier === 'critical';
+  const tl = isCrit ? `<span class="lbl lbl-red">🔴 CRITICAL</span>` : `<span class="lbl lbl-gray">⚪ NORMAL</span>`;
+  const sc = item.score ? `<span class="lbl lbl-orange">▲ ${item.score}</span>` : '';
+  const tags = (item.tags||[]).slice(0,3).map(t=>`<span class="lbl lbl-blue">${E(t)}</span>`).join('');
+  return `<div class="item-row" onclick="selFeed(this,${idx})"><div class="item-ic" style="font-size:18px;background:${isCrit?'rgba(248,81,73,.12)':'rgba(139,148,158,.08)'}">${isCrit?'🔴':'⚪'}</div><div class="item-body"><div class="item-title">${E(item.title)}</div><div class="item-meta"><span>${E(item.source)}</span>${item.by?`<span>@${E(item.by)}</span>`:''}<span>${ago(item.time)}</span></div><div class="item-labels">${tl}${sc}${tags}</div></div></div>`;
+}
+function renderFeedDetail(item) {
+  const isCrit = item.tier === 'critical';
+  const tl = isCrit ? `<span class="lbl lbl-red">🔴 CRITICAL</span>` : `<span class="lbl lbl-gray">⚪ NORMAL</span>`;
+  const tags = (item.tags||[]).map(t=>`<span class="lbl lbl-blue">${E(t)}</span>`).join('');
+  return `<div class="d-top"><div class="d-icon" style="font-size:22px;background:${isCrit?'rgba(248,81,73,.12)':'rgba(139,148,158,.08)'}">${isCrit?'🔴':'⚪'}</div><div class="d-title-g"><div class="d-title">${E(item.title)}</div><div class="d-labels">${tl}${item.score?`<span class="lbl lbl-orange">▲ ${item.score} pts</span>`:''}</div></div></div>
+<div class="d-sec"><div class="d-sec-title">Details</div><table class="meta-tbl"><tr><td>Source</td><td>${E(item.source)}</td></tr>${item.by?`<tr><td>Author</td><td>@${E(item.by)}</td></tr>`:''}<tr><td>Tier</td><td>${isCrit?'<strong style="color:var(--red)">Critical</strong>':'Normal'}</td></tr>${item.time?`<tr><td>Posted</td><td>${ago(item.time)}</td></tr>`:''}${item.score?`<tr><td>Score</td><td>${item.score} pts</td></tr>`:''}</table></div>
+${tags?`<div class="d-sec"><div class="d-sec-title">Matched Keywords</div><div class="item-labels" style="gap:5px">${tags}</div></div>`:''}
+<div class="d-sec"><div class="d-sec-title">URL</div><div class="code-block"><div class="code-hdr"><span>link</span><button class="copy-btn" onclick="copyText(this,'${E(item.url)}')">📋 Copy</button></div><div class="code-body"><pre>${E(item.url)}</pre></div></div></div>
+<div class="action-row"><a class="btn-p" href="${E(item.url)}" target="_blank" rel="noopener">Read ↗</a></div>`;
+}
+function selFeed(el, idx) { selectRow(el, renderFeedDetail(feedData[idx])); }
+async function loadFeed() {
+  const el = document.getElementById('feed-list');
+  try {
+    const r = await fetch('/api/feed'); if (!r.ok) throw new Error('HTTP '+r.status);
+    feedData = await r.json();
+    document.getElementById('cnt-feed').textContent = feedData.length;
+    document.getElementById('feed-cnt-h').textContent = feedData.length;
+    const critCount = feedData.filter(x=>x.tier==='critical').length;
+    if (critCount > 0) {
+      const b = document.querySelector('[data-tab="feed"] .tab-cnt');
+      if (b) { b.style.background='rgba(248,81,73,.2)'; b.style.color='#f85149'; }
+    }
+    el.innerHTML = feedData.length ? feedData.map((it,i)=>renderFeedCard(it,i)).join('') : `<div class="gh-empty"><div class="gh-empty-ico">🌍</div><p>No stories yet</p></div>`;
+  } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
+}
 async function loadSecrets() {
   const el = document.getElementById('secret-list');
   try {
@@ -525,7 +567,7 @@ async function loadSecrets() {
 }
 function doRefresh() {
   resetCD(); clearDetail();
-  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets()])
+  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets(), loadFeed()])
     .then(() => { document.getElementById('ts').textContent = new Date().toLocaleTimeString(); });
 }
 let cdVal = 60;

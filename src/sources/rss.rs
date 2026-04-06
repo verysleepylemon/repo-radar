@@ -14,14 +14,37 @@ pub struct FeedItem {
 }
 
 /// Default tech news and sensitive-content RSS/Atom feeds.
+/// Covers tech news, world affairs, security, and government/policy.
 pub const DEFAULT_FEEDS: &[(&str, &str)] = &[
+    // ── Core tech news ─────────────────────────────────────────────────────
     ("Ars Technica", "https://feeds.arstechnica.com/arstechnica/technology-lab"),
     ("The Verge", "https://www.theverge.com/rss/index.xml"),
     ("TechCrunch", "https://techcrunch.com/feed"),
     ("Wired", "https://www.wired.com/feed/rss"),
     ("Slashdot", "https://rss.slashdot.org/Slashdot/slashdotMain"),
     ("Lobsters", "https://lobste.rs/rss"),
-    ("HN Front Page", "https://hnrss.org/frontpage?count=30"),
+    ("HN Front Page", "https://hnrss.org/frontpage?count=50"),
+    ("HN Ask", "https://hnrss.org/ask?count=30"),
+    ("HN Show", "https://hnrss.org/show?count=30"),
+    ("MIT Technology Review", "https://www.technologyreview.com/feed/"),
+    ("IEEE Spectrum", "https://spectrum.ieee.org/feeds/feed.rss"),
+    // ── World & government news ────────────────────────────────────────────
+    ("BBC News Technology", "https://feeds.bbci.co.uk/news/technology/rss.xml"),
+    ("BBC News World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
+    ("Reuters Technology", "https://feeds.reuters.com/reuters/technologyNews"),
+    ("AP Technology", "https://feeds.apnews.com/rss/apf-technology"),
+    ("The Guardian Tech", "https://www.theguardian.com/technology/rss"),
+    ("The Guardian World", "https://www.theguardian.com/world/rss"),
+    // ── Security / breach ─────────────────────────────────────────────────
+    ("Krebs on Security", "https://krebsonsecurity.com/feed/"),
+    ("Bleeping Computer", "https://www.bleepingcomputer.com/feed/"),
+    ("SecurityWeek", "https://feeds.feedburner.com/Securityweek"),
+    ("The Hacker News", "https://feeds.feedburner.com/TheHackersNews"),
+    // ── AI / research ─────────────────────────────────────────────────────
+    ("Hugging Face Blog", "https://huggingface.co/blog/feed.xml"),
+    ("Google AI Blog", "https://blog.research.google/feeds/posts/default"),
+    ("Anthropic News", "https://www.anthropic.com/rss.xml"),
+    // ── Google News: broad search terms ───────────────────────────────────
     (
         "Google News: Leaks/Censored",
         "https://news.google.com/rss/search?q=(leaked+OR+censored+OR+banned+OR+breach)+(tech+OR+github+OR+AI+OR+software)&hl=en-US&gl=US&ceid=US:en",
@@ -30,10 +53,28 @@ pub const DEFAULT_FEEDS: &[(&str, &str)] = &[
         "Google News: AI/Open Source",
         "https://news.google.com/rss/search?q=(artificial+intelligence+OR+open+source)+(release+OR+launches+OR+cuts+OR+ban)&hl=en-US&gl=US&ceid=US:en",
     ),
+    (
+        "Google News: Government/Tech Policy",
+        "https://news.google.com/rss/search?q=(government+OR+congress+OR+parliament+OR+regulation+OR+antitrust)+(AI+OR+tech+OR+cyber+OR+digital)&hl=en-US&gl=US&ceid=US:en",
+    ),
+    (
+        "Google News: Cyber/Security",
+        "https://news.google.com/rss/search?q=(cyberattack+OR+data+breach+OR+ransomware+OR+zero-day+OR+hacked)&hl=en-US&gl=US&ceid=US:en",
+    ),
+    (
+        "Google News: Geopolitics/Tech",
+        "https://news.google.com/rss/search?q=(sanctions+OR+ban+OR+seized+OR+arrested+OR+indicted)+(technology+OR+AI+OR+software+OR+chip)&hl=en-US&gl=US&ceid=US:en",
+    ),
 ];
 
 pub struct RssSource {
     client: Client,
+}
+
+impl Default for RssSource {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RssSource {
@@ -87,7 +128,7 @@ fn extract_tag<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
     // handle CDATA: <tag><![CDATA[content]]></tag>
     let content = if xml[after_open..].starts_with("<![CDATA[") {
         let cdata_start = after_open + 9; // len("<![CDATA[")
-        let cdata_end = xml[cdata_start..].find("]]>")?  + cdata_start;
+        let cdata_end = xml[cdata_start..].find("]]>")? + cdata_start;
         &xml[cdata_start..cdata_end]
     } else {
         let end = xml[after_open..].find(&close)? + after_open;

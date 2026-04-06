@@ -8,7 +8,7 @@ use repo_radar::config::Config;
 use repo_radar::detector::Detector;
 use repo_radar::notifiers::NotifierSet;
 use repo_radar::redis_store::RedisStore;
-use repo_radar::secret_scanner::{SecretScanner, new_findings_buf};
+use repo_radar::secret_scanner::{new_findings_buf, SecretScanner};
 use repo_radar::sources::github::GitHubSource;
 use repo_radar::sources::hackernews::HackerNewsSource;
 use repo_radar::sources::reddit::RedditSource;
@@ -96,18 +96,21 @@ async fn run_watch(config: Config) -> Result<()> {
         info!("Twitter/X source disabled (set TWITTER_BEARER_TOKEN to enable)");
     }
 
-    let poll_gh  = Duration::from_secs(config.poll_interval_secs);
-    let poll_hn  = Duration::from_secs(180);
+    let poll_gh = Duration::from_secs(config.poll_interval_secs);
+    let poll_hn = Duration::from_secs(180);
     let poll_rss = Duration::from_secs(config.rss_interval_secs);
-    let poll_tw  = Duration::from_secs(config.twitter_interval_secs);
-    let poll_rd  = Duration::from_secs(900);
+    let poll_tw = Duration::from_secs(config.twitter_interval_secs);
+    let poll_rd = Duration::from_secs(900);
 
-    run_watch_loop(config, detector, github, hn, reddit, rss, twitter,
-                   poll_gh, poll_hn, poll_rss, poll_tw, poll_rd).await
+    run_watch_loop(
+        config, detector, github, hn, reddit, rss, twitter, poll_gh, poll_hn, poll_rss, poll_tw,
+        poll_rd,
+    )
+    .await
 }
 
 async fn run_serve(config: Config, port: u16) -> Result<()> {
-    let buf      = web::new_alert_buf();
+    let buf = web::new_alert_buf();
     let findings = new_findings_buf();
 
     let store = RedisStore::try_connect(&config.redis_url).await;
@@ -125,8 +128,7 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
         .map(TwitterSource::new);
 
     let store_web = store.clone();
-    let detector = Detector::new(config.clone(), store, notifiers)
-        .with_alert_buf(buf.clone());
+    let detector = Detector::new(config.clone(), store, notifiers).with_alert_buf(buf.clone());
 
     // Build the secret scanner and run it as a background task.
     let scanner_http = reqwest::Client::builder()
@@ -138,11 +140,11 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
 
     println!("🔭  repo-radar dashboard → http://localhost:{port}");
 
-    let poll_gh  = Duration::from_secs(config.poll_interval_secs);
-    let poll_hn  = Duration::from_secs(180);
+    let poll_gh = Duration::from_secs(config.poll_interval_secs);
+    let poll_hn = Duration::from_secs(180);
     let poll_rss = Duration::from_secs(config.rss_interval_secs);
-    let poll_tw  = Duration::from_secs(config.twitter_interval_secs);
-    let poll_rd  = Duration::from_secs(900);
+    let poll_tw = Duration::from_secs(config.twitter_interval_secs);
+    let poll_rd = Duration::from_secs(900);
 
     // Background task: purge Redis alerts older than 3 days every 6 hours.
     if let Some(store_purge) = store_web.clone() {
@@ -150,8 +152,13 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
             let mut interval = time::interval(Duration::from_secs(6 * 3600));
             loop {
                 interval.tick().await;
-                match store_purge.purge_old_alerts(Duration::from_secs(3 * 86_400)).await {
-                    Ok(n) if n > 0 => info!(removed = n, "Purged old Redis alerts (3-day retention)"),
+                match store_purge
+                    .purge_old_alerts(Duration::from_secs(3 * 86_400))
+                    .await
+                {
+                    Ok(n) if n > 0 => {
+                        info!(removed = n, "Purged old Redis alerts (3-day retention)")
+                    }
                     Ok(_) => {}
                     Err(e) => tracing::warn!(error = %e, "Redis purge failed"),
                 }
@@ -172,6 +179,7 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_watch_loop(
     _config: Config,
     detector: Detector,
@@ -186,11 +194,11 @@ async fn run_watch_loop(
     poll_tw: Duration,
     poll_rd: Duration,
 ) -> Result<()> {
-    let mut gh_interval  = time::interval(poll_gh);
-    let mut hn_interval  = time::interval(poll_hn);
+    let mut gh_interval = time::interval(poll_gh);
+    let mut hn_interval = time::interval(poll_hn);
     let mut rss_interval = time::interval(poll_rss);
-    let mut tw_interval  = time::interval(poll_tw);
-    let mut rd_interval  = time::interval(poll_rd);
+    let mut tw_interval = time::interval(poll_tw);
+    let mut rd_interval = time::interval(poll_rd);
 
     loop {
         tokio::select! {

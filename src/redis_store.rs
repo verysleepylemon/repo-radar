@@ -104,10 +104,12 @@ impl RedisStore {
     /// Returns the number of items removed.
     pub async fn purge_old_alerts(&self, max_age: Duration) -> Result<usize> {
         let mut conn = self.manager.clone();
-        let all: Vec<String> = conn.lrange::<_, Vec<String>>(ALERTS_LIST_KEY, 0, -1).await?;
+        let all: Vec<String> = conn
+            .lrange::<_, Vec<String>>(ALERTS_LIST_KEY, 0, -1)
+            .await?;
         let total = all.len();
-        let cutoff = Utc::now()
-            - chrono::Duration::from_std(max_age).unwrap_or(chrono::Duration::days(3));
+        let cutoff =
+            Utc::now() - chrono::Duration::from_std(max_age).unwrap_or(chrono::Duration::days(3));
         let kept: Vec<String> = all
             .into_iter()
             .filter(|s| {
@@ -123,7 +125,8 @@ impl RedisStore {
         // Atomic replace: delete then re-push in reverse order so newest stays first.
         conn.del::<_, ()>(ALERTS_LIST_KEY).await.ok();
         for item in kept.iter().rev() {
-            conn.lpush::<_, _, ()>(ALERTS_LIST_KEY, item.as_str()).await?;
+            conn.lpush::<_, _, ()>(ALERTS_LIST_KEY, item.as_str())
+                .await?;
         }
         info!(removed, "Purged old alerts from Redis");
         Ok(removed)

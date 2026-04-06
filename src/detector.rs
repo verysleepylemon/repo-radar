@@ -8,11 +8,11 @@ use crate::config::Config;
 use crate::notifiers::{windows_toast, NotifierSet};
 use crate::redis_store::RedisStore;
 use crate::sources::github::GitHubSource;
-use crate::web::{push_alert, AlertBuf};
 use crate::sources::hackernews::HackerNewsSource;
 use crate::sources::reddit::RedditSource;
 use crate::sources::rss::RssSource;
 use crate::sources::twitter::TwitterSource;
+use crate::web::{push_alert, AlertBuf};
 
 /// Priority level for an alert — drives notification urgency.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -82,10 +82,26 @@ impl fmt::Display for AlertSource {
 
 /// Keywords that indicate censored, leaked, or suppressed content.
 const SENSITIVE_KEYWORDS: &[&str] = &[
-    "leaked", "banned", "censored", "removed", "dmca", "takedown",
-    "zero-day", "0day", "backdoor", "whistleblower", "classified",
-    "suppressed", "deplatformed", "surveillance", "breach",
-    "exploit", "arrested", "seized", "shutdown", "wiped",
+    "leaked",
+    "banned",
+    "censored",
+    "removed",
+    "dmca",
+    "takedown",
+    "zero-day",
+    "0day",
+    "backdoor",
+    "whistleblower",
+    "classified",
+    "suppressed",
+    "deplatformed",
+    "surveillance",
+    "breach",
+    "exploit",
+    "arrested",
+    "seized",
+    "shutdown",
+    "wiped",
 ];
 
 /// Returns true if `text` contains any sensitive keyword.
@@ -256,11 +272,20 @@ impl Detector {
         let min_engagement = 50;
 
         // Trending tech tweets
-        let trending = source.search_tech_trending(min_engagement).await.unwrap_or_default();
+        let trending = source
+            .search_tech_trending(min_engagement)
+            .await
+            .unwrap_or_default();
         for tweet in trending.iter().take(10) {
             let key = format!("twitter:{}", tweet.id);
-            if self.is_seen(&key).await { continue; }
-            let priority = if is_sensitive(&tweet.text) { AlertPriority::Critical } else { AlertPriority::Normal };
+            if self.is_seen(&key).await {
+                continue;
+            }
+            let priority = if is_sensitive(&tweet.text) {
+                AlertPriority::Critical
+            } else {
+                AlertPriority::Normal
+            };
             let alert = Alert {
                 repo_full_name: format!("@tweet:{}", &tweet.id[..tweet.id.len().min(12)]),
                 description: Some(tweet.text.chars().take(280).collect()),
@@ -285,7 +310,9 @@ impl Detector {
         let sensitive = source.search_sensitive(20).await.unwrap_or_default();
         for tweet in sensitive.iter().take(5) {
             let key = format!("twitter-s:{}", tweet.id);
-            if self.is_seen(&key).await { continue; }
+            if self.is_seen(&key).await {
+                continue;
+            }
             let alert = Alert {
                 repo_full_name: format!("🚨 sensitive:{}", &tweet.id[..tweet.id.len().min(8)]),
                 description: Some(tweet.text.chars().take(280).collect()),
@@ -315,11 +342,21 @@ impl Detector {
         let posts = source.fetch_hot().await?;
         for post in posts.iter().take(15) {
             let key = format!("reddit:{}", post.id);
-            if self.is_seen(&key).await { continue; }
+            if self.is_seen(&key).await {
+                continue;
+            }
             let body_text = format!("{} {}", post.title, post.selftext);
-            let priority = if is_sensitive(&body_text) { AlertPriority::Critical } else { AlertPriority::Normal };
+            let priority = if is_sensitive(&body_text) {
+                AlertPriority::Critical
+            } else {
+                AlertPriority::Normal
+            };
             let alert = Alert {
-                repo_full_name: format!("r/{}: {}", post.subreddit, post.title.chars().take(60).collect::<String>()),
+                repo_full_name: format!(
+                    "r/{}: {}",
+                    post.subreddit,
+                    post.title.chars().take(60).collect::<String>()
+                ),
                 description: Some(post.title.clone()),
                 language: Some(format!("reddit/r/{}", post.subreddit)),
                 stars_now: post.score,
@@ -346,9 +383,15 @@ impl Detector {
         let items = source.fetch_all().await;
         for item in &items {
             let key = format!("rss:{}", item.link);
-            if self.is_seen(&key).await { continue; }
+            if self.is_seen(&key).await {
+                continue;
+            }
             let combined = format!("{} {}", item.title, item.description);
-            let priority = if is_sensitive(&combined) { AlertPriority::Critical } else { AlertPriority::Normal };
+            let priority = if is_sensitive(&combined) {
+                AlertPriority::Critical
+            } else {
+                AlertPriority::Normal
+            };
             let alert = Alert {
                 repo_full_name: item.title.chars().take(80).collect(),
                 description: Some(item.description.chars().take(300).collect()),
@@ -357,7 +400,11 @@ impl Detector {
                 stars_gained_24h: 0,
                 forks: 0,
                 growth_factor: 0.0,
-                score: if priority == AlertPriority::Critical { 1000.0 } else { 200.0 },
+                score: if priority == AlertPriority::Critical {
+                    1000.0
+                } else {
+                    200.0
+                },
                 detected_at: item.published.unwrap_or_else(Utc::now),
                 source: AlertSource::RssFeed(item.feed_name.clone()),
                 url: item.link.clone(),
@@ -384,9 +431,16 @@ impl Detector {
         }
         // Windows toast for Critical priority
         if alert.is_critical() {
-            let title = format!("🚨 SENSITIVE: {}", &alert.repo_full_name.chars().take(60).collect::<String>());
+            let title = format!(
+                "🚨 SENSITIVE: {}",
+                &alert.repo_full_name.chars().take(60).collect::<String>()
+            );
             let raw_body = alert.description.as_deref().unwrap_or("");
-            let body = if raw_body.is_empty() { "Sensitive content detected" } else { raw_body };
+            let body = if raw_body.is_empty() {
+                "Sensitive content detected"
+            } else {
+                raw_body
+            };
             windows_toast::notify(&title, body);
         }
         self.notifiers.notify(alert).await;

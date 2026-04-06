@@ -38,29 +38,43 @@ pub fn new_findings_buf() -> FindingsBuf {
 // NONE of these strings cannot possibly match any of our regex rules, so we
 // skip it immediately. This cuts the regex workload by ~95% on typical diffs.
 //
-// Built with ascii_case_insensitive so "aws", "AWS", "Aws" all hit. 
+// Built with ascii_case_insensitive so "aws", "AWS", "Aws" all hit.
 static KEYWORDS: &[&str] = &[
     // AWS
-    "akia", "aws",
+    "akia",
+    "aws",
     // GitHub
-    "ghp_", "github_pat_", "ghs_", "gho_",
+    "ghp_",
+    "github_pat_",
+    "ghs_",
+    "gho_",
     // OpenAI / Anthropic
-    "sk-ant", "sk-",
+    "sk-ant",
+    "sk-",
     // Stripe
-    "sk_live_", "sk_test_", "rk_live_",
+    "sk_live_",
+    "sk_test_",
+    "rk_live_",
     // Google
-    "aiza",                      // matches "AIza" case-insensitively
+    "aiza", // matches "AIza" case-insensitively
     "googleusercontent.com",
     // Slack
-    "xoxb-", "xoxp-", "hooks.slack.com",
+    "xoxb-",
+    "xoxp-",
+    "hooks.slack.com",
     // Twilio
     "twilio",
     // Discord
     "discord",
     // SendGrid / Mailgun / Mailchimp
-    "sg.", "key-", "mailchimp", "mailgun", "sendgrid",
+    "sg.",
+    "key-",
+    "mailchimp",
+    "mailgun",
+    "sendgrid",
     // Azure
-    "accountkey=", "sv=",
+    "accountkey=",
+    "sv=",
     // Private keys (all PEM types)
     "-----begin ",
     // JWT
@@ -72,8 +86,14 @@ static KEYWORDS: &[&str] = &[
     // Cohere
     "cohere",
     // Generic env-var names (rusty-hog pattern)
-    "api_key", "apikey", "api_secret", "access_token",
-    "secret_key", "auth_token", "password", "passwd",
+    "api_key",
+    "apikey",
+    "api_secret",
+    "access_token",
+    "secret_key",
+    "auth_token",
+    "password",
+    "passwd",
 ];
 
 // ─── False-positive allowlist (rusty-hog / noseyparker pattern) ───────────────
@@ -103,112 +123,197 @@ static FP_ALLOW: &[&str] = &[
 /// (label, regex_pattern, severity)
 static PATTERNS: &[(&str, &str, &str)] = &[
     // AWS
-    ("AWS Access Key ID",          r"AKIA[0-9A-Z]{16}",                                                        "critical"),
-    ("AWS Secret Access Key",      r"(?i)aws.{0,30}secret.{0,30}[A-Za-z0-9/+=]{40}",                          "critical"),
-
+    ("AWS Access Key ID", r"AKIA[0-9A-Z]{16}", "critical"),
+    (
+        "AWS Secret Access Key",
+        r"(?i)aws.{0,30}secret.{0,30}[A-Za-z0-9/+=]{40}",
+        "critical",
+    ),
     // GitHub
-    ("GitHub Personal Token",      r"ghp_[a-zA-Z0-9]{36}",                                                     "critical"),
-    ("GitHub Fine-grained Token",  r"github_pat_[a-zA-Z0-9_]{82}",                                             "critical"),
-    ("GitHub App Install Token",   r"ghs_[a-zA-Z0-9]{36}",                                                     "high"),
-    ("GitHub OAuth Token",         r"gho_[a-zA-Z0-9]{36}",                                                     "high"),
-
+    ("GitHub Personal Token", r"ghp_[a-zA-Z0-9]{36}", "critical"),
+    (
+        "GitHub Fine-grained Token",
+        r"github_pat_[a-zA-Z0-9_]{82}",
+        "critical",
+    ),
+    ("GitHub App Install Token", r"ghs_[a-zA-Z0-9]{36}", "high"),
+    ("GitHub OAuth Token", r"gho_[a-zA-Z0-9]{36}", "high"),
     // OpenAI / Anthropic / AI
-    ("OpenAI API Key",             r"sk-[a-zA-Z0-9]{48}",                                                      "critical"),
-    ("Anthropic API Key",          r"sk-ant-api\d{2}-[a-zA-Z0-9_-]{93}",                                      "critical"),
-    ("Anthropic Key (short)",      r"sk-ant-[a-zA-Z0-9_-]{40,}",                                               "critical"),
-    ("Cohere API Key",             r"cohere[_\-\s]*[a-zA-Z0-9]{40}",                                            "high"),
-
+    ("OpenAI API Key", r"sk-[a-zA-Z0-9]{48}", "critical"),
+    (
+        "Anthropic API Key",
+        r"sk-ant-api\d{2}-[a-zA-Z0-9_-]{93}",
+        "critical",
+    ),
+    (
+        "Anthropic Key (short)",
+        r"sk-ant-[a-zA-Z0-9_-]{40,}",
+        "critical",
+    ),
+    ("Cohere API Key", r"cohere[_\-\s]*[a-zA-Z0-9]{40}", "high"),
     // Stripe
-    ("Stripe Live Secret Key",     r"sk_live_[a-zA-Z0-9]{24,}",                                                "critical"),
-    ("Stripe Test Secret Key",     r"sk_test_[a-zA-Z0-9]{24,}",                                                "medium"),
-    ("Stripe Restricted Key",      r"rk_live_[a-zA-Z0-9]{24,}",                                                "high"),
-
+    (
+        "Stripe Live Secret Key",
+        r"sk_live_[a-zA-Z0-9]{24,}",
+        "critical",
+    ),
+    (
+        "Stripe Test Secret Key",
+        r"sk_test_[a-zA-Z0-9]{24,}",
+        "medium",
+    ),
+    ("Stripe Restricted Key", r"rk_live_[a-zA-Z0-9]{24,}", "high"),
     // Google
-    ("Google API Key",             r"AIza[0-9A-Za-z\-_]{35}",                                                  "high"),
-    ("Google OAuth Client ID",     r"[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com",                          "medium"),
-
+    ("Google API Key", r"AIza[0-9A-Za-z\-_]{35}", "high"),
+    (
+        "Google OAuth Client ID",
+        r"[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com",
+        "medium",
+    ),
     // Slack
-    ("Slack Bot Token",            r"xoxb-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{24}",                             "high"),
-    ("Slack User Token",           r"xoxp-[0-9]{10,}-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{32}",                 "high"),
-    ("Slack Webhook",              r"hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}", "high"),
-
+    (
+        "Slack Bot Token",
+        r"xoxb-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{24}",
+        "high",
+    ),
+    (
+        "Slack User Token",
+        r"xoxp-[0-9]{10,}-[0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{32}",
+        "high",
+    ),
+    (
+        "Slack Webhook",
+        r"hooks\.slack\.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}",
+        "high",
+    ),
     // Twilio
-    ("Twilio Account SID",         r"AC[a-f0-9]{32}",                                                          "medium"),
-    ("Twilio Auth Token",          r"(?i)twilio.{0,30}[a-f0-9]{32}",                                           "high"),
-
+    ("Twilio Account SID", r"AC[a-f0-9]{32}", "medium"),
+    (
+        "Twilio Auth Token",
+        r"(?i)twilio.{0,30}[a-f0-9]{32}",
+        "high",
+    ),
     // Discord
-    ("Discord Bot Token",          r"[MN][a-zA-Z0-9]{23}\.[a-zA-Z0-9\-_]{6}\.[a-zA-Z0-9\-_]{27}",            "high"),
-    ("Discord Webhook",            r"discord(?:app)?\.com/api/webhooks/[0-9]{18}/[a-zA-Z0-9_\-]{68}",          "high"),
-
+    (
+        "Discord Bot Token",
+        r"[MN][a-zA-Z0-9]{23}\.[a-zA-Z0-9\-_]{6}\.[a-zA-Z0-9\-_]{27}",
+        "high",
+    ),
+    (
+        "Discord Webhook",
+        r"discord(?:app)?\.com/api/webhooks/[0-9]{18}/[a-zA-Z0-9_\-]{68}",
+        "high",
+    ),
     // SendGrid / Mailgun / Mailchimp
-    ("SendGrid API Key",           r"SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}",                             "high"),
-    ("Mailgun API Key",            r"key-[a-zA-Z0-9]{32}",                                                     "high"),
-    ("Mailchimp API Key",          r"[a-f0-9]{32}-us[0-9]{1,2}",                                               "medium"),
-
+    (
+        "SendGrid API Key",
+        r"SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}",
+        "high",
+    ),
+    ("Mailgun API Key", r"key-[a-zA-Z0-9]{32}", "high"),
+    ("Mailchimp API Key", r"[a-f0-9]{32}-us[0-9]{1,2}", "medium"),
     // Azure / Microsoft
-    ("Azure Storage Key",          r"AccountKey=[A-Za-z0-9+/]{88}==",                                         "critical"),
-    ("Azure SAS Token",            r"sv=[0-9]{4}-[0-9]{2}-[0-9]{2}&",                                          "high"),
-
+    (
+        "Azure Storage Key",
+        r"AccountKey=[A-Za-z0-9+/]{88}==",
+        "critical",
+    ),
+    ("Azure SAS Token", r"sv=[0-9]{4}-[0-9]{2}-[0-9]{2}&", "high"),
     // Private keys
-    ("RSA Private Key",            r"-----BEGIN RSA PRIVATE KEY-----",                                         "critical"),
-    ("EC Private Key",             r"-----BEGIN EC PRIVATE KEY-----",                                          "critical"),
-    ("OpenSSH Private Key",        r"-----BEGIN OPENSSH PRIVATE KEY-----",                                     "critical"),
-    ("Generic Private Key",        r"-----BEGIN PRIVATE KEY-----",                                             "critical"),
-
+    (
+        "RSA Private Key",
+        r"-----BEGIN RSA PRIVATE KEY-----",
+        "critical",
+    ),
+    (
+        "EC Private Key",
+        r"-----BEGIN EC PRIVATE KEY-----",
+        "critical",
+    ),
+    (
+        "OpenSSH Private Key",
+        r"-----BEGIN OPENSSH PRIVATE KEY-----",
+        "critical",
+    ),
+    (
+        "Generic Private Key",
+        r"-----BEGIN PRIVATE KEY-----",
+        "critical",
+    ),
     // JWT (loose — only flag when in suspicious context)
-    ("JWT Token",                  r"eyJ[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]{20,}",     "medium"),
-
+    (
+        "JWT Token",
+        r"eyJ[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]{20,}\.[a-zA-Z0-9_\-]{20,}",
+        "medium",
+    ),
     // Heroku
-    ("Heroku API Key",             r"(?i)heroku.{0,30}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "high"),
-
+    (
+        "Heroku API Key",
+        r"(?i)heroku.{0,30}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        "high",
+    ),
     // NPM tokens
-    ("NPM Automation Token",       r"npm_[a-zA-Z0-9]{36}",                                                     "high"),
-    ("NPM Legacy Token",           r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",          "medium"),
-
+    ("NPM Automation Token", r"npm_[a-zA-Z0-9]{36}", "high"),
+    (
+        "NPM Legacy Token",
+        r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",
+        "medium",
+    ),
     // Telegram
-    ("Telegram Bot Token",         r"[0-9]{7,12}:[a-zA-Z0-9_\-]{35}",                                         "high"),
-
+    (
+        "Telegram Bot Token",
+        r"[0-9]{7,12}:[a-zA-Z0-9_\-]{35}",
+        "high",
+    ),
     // Generic high-entropy env var assignments
-    ("Generic API Key Env",        r#"(?i)(api_key|apikey|api_secret|access_token|secret_key|auth_token)\s*[=:]\s*["']?[a-zA-Z0-9_\-]{32,}["']?"#, "medium"),
-    ("Generic Password Env",       r#"(?i)(password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']"#,                 "medium"),
+    (
+        "Generic API Key Env",
+        r#"(?i)(api_key|apikey|api_secret|access_token|secret_key|auth_token)\s*[=:]\s*["']?[a-zA-Z0-9_\-]{32,}["']?"#,
+        "medium",
+    ),
+    (
+        "Generic Password Env",
+        r#"(?i)(password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']"#,
+        "medium",
+    ),
 ];
 
 // ─── Finding struct ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecretFinding {
-    pub id:            String,
-    pub repo:          String,
-    pub repo_url:      String,
-    pub owner:         String,
-    pub commit_sha:    String,
-    pub commit_url:    String,
-    pub file_path:     String,
-    pub line_number:   Option<usize>,
-    pub secret_type:   String,
-    pub severity:      String,
+    pub id: String,
+    pub repo: String,
+    pub repo_url: String,
+    pub owner: String,
+    pub commit_sha: String,
+    pub commit_url: String,
+    pub file_path: String,
+    pub line_number: Option<usize>,
+    pub secret_type: String,
+    pub severity: String,
     /// Masked value — never the full secret.  e.g. "AKIA****ZXYZ"
-    pub preview:       String,
+    pub preview: String,
     /// One line of surrounding context with the secret replaced by [REDACTED]
-    pub context_line:  String,
-    pub detected_at:   String,
+    pub context_line: String,
+    pub detected_at: String,
     /// Pre-filled GitHub "new issue" URL so the researcher can notify the owner
     pub disclosure_url: String,
     /// True if this finding appeared in a new scan cycle (not seen before)
-    pub is_new:        bool,
+    pub is_new: bool,
 }
 
 // ─── Scanner ──────────────────────────────────────────────────────────────────
 
 pub struct SecretScanner {
-    http:    reqwest::Client,
-    buf:     FindingsBuf,
+    http: reqwest::Client,
+    buf: FindingsBuf,
     /// seen_ids prevents duplicates across poll cycles
-    seen:    Arc<RwLock<HashMap<String, ()>>>,
+    seen: Arc<RwLock<HashMap<String, ()>>>,
     regexes: Vec<(String, Regex, String)>,
     /// Aho-Corasick automaton for fast keyword pre-filter (noseyparker approach).
     /// Lines matching none of KEYWORDS are skipped before regex evaluation.
-    ac:      AhoCorasick,
+    ac: AhoCorasick,
 }
 
 impl SecretScanner {
@@ -280,7 +385,9 @@ impl SecretScanner {
             };
             for commit in commits.iter().take(3) {
                 let sha = commit["sha"].as_str().unwrap_or("").to_string();
-                if sha.is_empty() { continue; }
+                if sha.is_empty() {
+                    continue;
+                }
                 if let Err(e) = self.scan_commit(&repo_name, &sha).await {
                     warn!("scan_commit {repo_name}@{sha}: {e}");
                 }
@@ -293,7 +400,8 @@ impl SecretScanner {
 
     async fn scan_commit(&self, repo: &str, sha: &str) -> anyhow::Result<()> {
         let url = format!("https://api.github.com/repos/{repo}/commits/{sha}");
-        let resp = self.http
+        let resp = self
+            .http
             .get(&url)
             .header("Accept", "application/vnd.github+json")
             .send()
@@ -319,12 +427,12 @@ impl SecretScanner {
             };
 
             // Skip known false-positive files
-            if is_ignored_file(&file_path) { continue; }
+            if is_ignored_file(&file_path) {
+                continue;
+            }
 
-            self.scan_patch(
-                repo, &owner, sha, &commit_url, &file_path, &patch,
-            )
-            .await;
+            self.scan_patch(repo, &owner, sha, &commit_url, &file_path, &patch)
+                .await;
         }
         Ok(())
     }
@@ -351,9 +459,8 @@ impl SecretScanner {
                 }
                 continue;
             }
-            if raw_line.starts_with('+') {
+            if let Some(line) = raw_line.strip_prefix('+') {
                 line_no += 1;
-                let line = &raw_line[1..]; // strip leading '+'
 
                 // ── Aho-Corasick pre-filter (noseyparker approach) ──────────────
                 // Skip lines that contain none of our credential keywords.
@@ -381,14 +488,19 @@ impl SecretScanner {
 
                         {
                             let s = self.seen.read().await;
-                            if s.contains_key(&finding_id) { continue; }
+                            if s.contains_key(&finding_id) {
+                                continue;
+                            }
                         }
                         // Mark as seen
                         self.seen.write().await.insert(finding_id.clone(), ());
 
-                        let preview   = mask_secret(matched);
-                        let ctx_line  = line.replacen(matched, "[REDACTED]", 1)
-                                          .chars().take(120).collect::<String>();
+                        let preview = mask_secret(matched);
+                        let ctx_line = line
+                            .replacen(matched, "[REDACTED]", 1)
+                            .chars()
+                            .take(120)
+                            .collect::<String>();
 
                         let disclosure_body = format!(
                             "Hello! I found a potentially exposed credential in this repository.\n\n\
@@ -465,7 +577,9 @@ fn parse_hunk_line(hd: &str) -> Option<usize> {
     let after = &hd[plus_idx + 1..];
     let plus = after.find('+')?;
     let numpart = &after[plus + 1..];
-    let end = numpart.find(|c: char| !c.is_ascii_digit()).unwrap_or(numpart.len());
+    let end = numpart
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(numpart.len());
     numpart[..end].parse().ok()
 }
 
@@ -474,8 +588,9 @@ fn urlencoding_simple(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 2);
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             b' ' => out.push('+'),
             _ => {
                 out.push('%');

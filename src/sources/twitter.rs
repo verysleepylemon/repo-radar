@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use std::time::Duration;
 use tracing::debug;
@@ -36,10 +36,7 @@ pub struct TweetMetrics {
 impl TweetMetrics {
     /// Weighted engagement score: retweets × 5 + likes + replies × 2 + quotes × 3.
     pub fn engagement(&self) -> u64 {
-        self.retweet_count * 5
-            + self.like_count
-            + self.reply_count * 2
-            + self.quote_count * 3
+        self.retweet_count * 5 + self.like_count + self.reply_count * 2 + self.quote_count * 3
     }
 }
 
@@ -84,12 +81,7 @@ impl TwitterSource {
         self.search(query, 50, min_engagement).await
     }
 
-    async fn search(
-        &self,
-        query: &str,
-        max: u32,
-        min_engagement: u64,
-    ) -> Result<Vec<Tweet>> {
+    async fn search(&self, query: &str, max: u32, min_engagement: u64) -> Result<Vec<Tweet>> {
         let url = format!("{}/tweets/search/recent", self.api_base);
         let response = self
             .client
@@ -118,7 +110,9 @@ impl TwitterSource {
         let mut tweets = data.data.unwrap_or_default();
         tweets.retain(|t| t.public_metrics.engagement() >= min_engagement);
         tweets.sort_by(|a, b| {
-            b.public_metrics.engagement().cmp(&a.public_metrics.engagement())
+            b.public_metrics
+                .engagement()
+                .cmp(&a.public_metrics.engagement())
         });
         Ok(tweets)
     }

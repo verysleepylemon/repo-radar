@@ -56,7 +56,7 @@ fn sanitize(s: &str, max_chars: usize) -> String {
 /// Minimal Base64 encoder (no external crate needed).
 fn base64_encode(input: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
@@ -64,8 +64,16 @@ fn base64_encode(input: &[u8]) -> String {
         let combined = (b0 << 16) | (b1 << 8) | b2;
         out.push(TABLE[((combined >> 18) & 0x3F) as usize] as char);
         out.push(TABLE[((combined >> 12) & 0x3F) as usize] as char);
-        out.push(if chunk.len() > 1 { TABLE[((combined >> 6) & 0x3F) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[(combined & 0x3F) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[((combined >> 6) & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(combined & 0x3F) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
