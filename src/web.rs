@@ -151,6 +151,7 @@ pub struct WebState {
     leak_cache: Cache<Vec<LeakItem>>,
     npm_cache: Cache<Vec<LeakItem>>,
     feed_cache: Cache<Vec<WorldFeedItem>>,
+    ghost_cache: Cache<Vec<GhostRepo>>,
 }
 
 impl WebState {
@@ -178,6 +179,7 @@ impl WebState {
             leak_cache: Arc::new(RwLock::new(None)),
             npm_cache: Arc::new(RwLock::new(None)),
             feed_cache: Arc::new(RwLock::new(None)),
+            ghost_cache: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -209,6 +211,25 @@ pub struct WorldFeedItem {
     /// "critical" = government/policy/breaking; "normal" = general tech/social
     pub tier: String,
     pub tags: Vec<String>,
+}
+/// A GitHub repo with many stars but very few commits — classic leak/dump profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GhostRepo {
+    pub id: u64,
+    pub full_name: String,
+    pub url: String,
+    pub description: String,
+    pub stars: u32,
+    pub forks: u32,
+    /// Confirmed commit count (≤ 5 to qualify as ghost)
+    pub commits: u32,
+    pub created_at: String,
+    pub pushed_at: String,
+    pub language: Option<String>,
+    pub avatar_url: String,
+    pub owner: String,
+    pub topics: Vec<String>,
+    pub size_kb: u32,
 }
 /// A known or discovered leaked source code repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -681,6 +702,128 @@ async fn fetch_social_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
     Ok(items)
 }
 
+// ─── Ghost Repos (high stars, low commits) ────────────────────────────────────
+
+async fn api_ghost(State(s): State<Arc<WebState>>) -> Json<Vec<GhostRepo>> {
+    const TTL: Duration = Duration::from_secs(300);
+    {
+        let c = s.ghost_cache.read().await;
+        if let Some((at, ref data)) = *c {
+            if at.elapsed() < TTL {
+                return Json(data.clone());
+            }
+        }
+    }
+    let items = fetch_ghost_repos(&s.http).await.unwrap_or_default();
+    *s.ghost_cache.write().await = Some((Instant::now(), items.clone()));
+    Json(items)
+}
+
+/// Search GitHub for repos that look like source dumps:
+/// many stars, very few commits (≤ 5).  Sort by stars desc (biggest first).
+async fn fetch_ghost_repos(http: &reqwest::Client) -> Result<Vec<GhostRepo>> {
+    let since_2yr = (Utc::now() - CDuration::days(730))
+        .format("%Y-%m-%d")
+        .to_string();
+
+    let q = format!("stars:>100 fork:false created:>{since_2yr}");
+    let resp = http
+        .get("https://api.github.com/search/repositories")
+        .query(&[
+            ("q", q.as_str()),
+            ("sort", "stars"),
+            ("order", "desc"),
+            ("per_page", "30"),
+        ])
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("GitHub search {}", resp.status());
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+    let items = match data["items"].as_array() {
+        Some(a) => a.clone(),
+        None => return Ok(vec![]),
+    };
+
+    let mut results = Vec::new();
+    for repo in &items {
+        let stars = repo["stargazers_count"].as_u64().unwrap_or(0) as u32;
+        let forks = repo["forks_count"].as_u64().unwrap_or(0) as u32;
+        let full_name = match repo["full_name"].as_str() {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        // Ghost heuristic: abnormally high stars-to-forks ratio
+        let ghost_ratio = forks < (stars / 15).max(1) || (stars >= 500 && forks < 10);
+        if !ghost_ratio {
+            continue;
+        }
+
+        // Verify commit count is very low (≤ 5 = one-shot dump)
+        let commit_count = match fetch_commit_count(http, &full_name).await {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        if commit_count > 5 {
+            continue;
+        }
+
+        let owner = repo["owner"]["login"].as_str().unwrap_or("").to_string();
+        let created_at = repo["created_at"].as_str().unwrap_or("").to_string();
+        results.push(GhostRepo {
+            id: repo["id"].as_u64().unwrap_or(0),
+            full_name,
+            url: repo["html_url"].as_str().unwrap_or("").to_string(),
+            description: repo["description"].as_str().unwrap_or("").to_string(),
+            stars,
+            forks,
+            commits: commit_count,
+            created_at,
+            pushed_at: repo["pushed_at"].as_str().unwrap_or("").to_string(),
+            language: repo["language"].as_str().map(String::from),
+            avatar_url: format!("https://avatars.githubusercontent.com/{owner}"),
+            owner,
+            topics: repo["topics"]
+                .as_array()
+                .map(|t| {
+                    t.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            size_kb: repo["size"].as_u64().unwrap_or(0) as u32,
+        });
+    }
+
+    // Most-starred ghost repos first; break ties by newest creation
+    results.sort_by(|a, b| {
+        b.stars
+            .cmp(&a.stars)
+            .then_with(|| b.created_at.cmp(&a.created_at))
+    });
+    Ok(results)
+}
+
+/// Fetch the number of commits for a repo (up to 6, to stay in rate-limit budget).
+async fn fetch_commit_count(http: &reqwest::Client, full_name: &str) -> Result<u32> {
+    let resp = http
+        .get(format!("https://api.github.com/repos/{full_name}/commits"))
+        .query(&[("per_page", "6")])
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("Commits API {} for {}", resp.status(), full_name);
+    }
+    let commits: serde_json::Value = resp.json().await?;
+    Ok(commits.as_array().map(|a| a.len() as u32).unwrap_or(0))
+}
+
 async fn fetch_github_trending(http: &reqwest::Client) -> Result<serde_json::Value> {
     let since = (Utc::now() - CDuration::days(30))
         .format("%Y-%m-%d")
@@ -1119,6 +1262,7 @@ pub async fn start_server(
         .route("/api/feed", get(api_feed))
         .route("/api/trending", get(api_trending))
         .route("/api/leaks", get(api_leaks))
+        .route("/api/ghost", get(api_ghost))
         .route("/api/secrets", get(api_secrets))
         .with_state(state)
         .layer(CorsLayer::permissive());

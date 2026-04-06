@@ -267,6 +267,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <button class="tab-btn" data-tab="alerts" onclick="switchTab('alerts')">🚨 Alerts <span class="tab-cnt" id="cnt-alerts">0</span></button>
       <button class="tab-btn" data-tab="secrets" onclick="switchTab('secrets')">🔑 Secrets <span class="tab-cnt" id="cnt-secrets" style="background:rgba(248,113,113,.15);color:#f85149">0</span></button>
       <button class="tab-btn" data-tab="feed" onclick="switchTab('feed')">🌍 World Feed <span class="tab-cnt" id="cnt-feed">…</span></button>
+      <button class="tab-btn" data-tab="ghost" onclick="switchTab('ghost')">👻 Ghost Repos <span class="tab-cnt" id="cnt-ghost">…</span></button>
     </div>
     <div class="gh-nav-r">
       <span class="gh-time">↺ <strong><span id="cd">60</span>s</strong> &nbsp;·&nbsp; <span id="ts">loading…</span></span>
@@ -302,6 +303,11 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
     <div id="tab-feed" class="tab-panel">
       <div class="list-hdr"><span>🌍</span><h2>World Feed</h2><span class="list-cnt-b" id="feed-cnt-h">…</span><span class="list-src">HN · Reddit · dual-tier: 🔴 Critical &amp; ⚪ Normal</span></div>
       <div id="feed-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
+    </div>
+    <!-- Ghost Repos -->
+    <div id="tab-ghost" class="tab-panel">
+      <div class="list-hdr"><span>👻</span><h2>Ghost Repos</h2><span class="list-cnt-b" id="ghost-cnt-h">…</span><span class="list-src">GitHub · high stars, ≤5 commits · newest first</span></div>
+      <div id="ghost-list"><div class="gh-loading"><div class="gh-spin"></div>Loading ghost repos…</div></div>
     </div>
     <!-- Secrets -->
     <div id="tab-secrets" class="tab-panel">
@@ -513,6 +519,38 @@ function renderSecretDetail(f) {
 }
 function selSecret(el, idx) { selectRow(el, renderSecretDetail(secretData[idx])); }
 
+/* ── Ghost Repos ── */
+let ghostData = [];
+function renderGhostCard(r, idx) {
+  const ll = r.language ? `<span class="lbl lbl-blue">${E(r.language)}</span>` : '';
+  const commits = r.commits <= 1 ? `<span class="lbl lbl-red">⚠ ${r.commits} commit${r.commits===1?'':'s'}</span>` : `<span class="lbl lbl-orange">${r.commits} commits</span>`;
+  return `<div class="item-row" onclick="selGhost(this,${idx})"><div style="flex-shrink:0;width:30px;height:30px;border-radius:50%;overflow:hidden;background:var(--gh-canvas2)"><img src="${E(r.avatar_url)}" width="30" height="30" style="display:block" loading="lazy" onerror="this.style.display='none'"></div><div class="item-body"><div class="item-title">${E(r.full_name)}</div>${r.description?`<div class="item-meta" style="-webkit-line-clamp:1;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden">${E(r.description)}</div>`:''}<div class="item-labels"><span class="lbl lbl-yellow">★ ${K(r.stars)}</span>${commits}${ll}</div></div></div>`;
+}
+function renderGhostDetail(r) {
+  const topics = (r.topics||[]).map(t=>`<span class="lbl lbl-blue">${E(t)}</span>`).join('');
+  const cloneUrl = r.url + '.git';
+  const createdAgo = r.created_at ? ago(r.created_at) : '';
+  const commitCls = r.commits<=1 ? 'color:var(--red);font-weight:700' : 'color:var(--orange)';
+  return `<div class="d-top"><div style="width:40px;height:40px;border-radius:50%;overflow:hidden;background:var(--gh-canvas2);flex-shrink:0"><img src="${E(r.avatar_url)}" width="40" height="40" style="display:block" loading="lazy"></div><div class="d-title-g"><div class="d-title">${E(r.full_name)}</div><div class="d-labels"><span class="lbl lbl-yellow">★ ${K(r.stars)}</span>${r.language?`<span class="lbl lbl-blue">${E(r.language)}</span>`:''}<span class="lbl lbl-red">👻 Ghost</span></div></div></div>
+${r.description?`<div class="d-desc">${E(r.description)}</div>`:''}
+<div class="d-sec"><div class="d-sec-title">Stats</div><div class="stats-bar"><div class="stat-item">★ <strong>${K(r.stars)}</strong> stars</div><div class="stat-item">🍴 <strong>${K(r.forks)}</strong> forks</div><div class="stat-item" style="${commitCls}">● <strong>${r.commits}</strong> commit${r.commits===1?'':'s'}</div><div class="stat-item">📦 <strong>${r.size_kb}</strong> KB</div></div></div>
+<div class="d-sec"><div class="d-sec-title">Dates</div><table class="meta-tbl"><tr><td>Created</td><td>${E(r.created_at)} <span style="color:var(--fg-s)">(${createdAgo})</span></td></tr><tr><td>Last push</td><td>${E(r.pushed_at)} <span style="color:var(--fg-s)">(${ago(r.pushed_at)})</span></td></tr><tr><td>Owner</td><td><a href="https://github.com/${E(r.owner)}" target="_blank" rel="noopener">${E(r.owner)}</a></td></tr></table></div>
+${topics?`<div class="d-sec"><div class="d-sec-title">Topics</div><div class="item-labels" style="gap:5px">${topics}</div></div>`:''}
+<div class="d-sec"><div class="d-sec-title">Clone (browse only)</div><div class="code-block"><div class="code-hdr"><span>bash</span><button class="copy-btn" onclick="copyText(this,'git clone ${E(cloneUrl)}')" >📋 Copy</button></div><div class="code-body"><pre>git clone ${E(cloneUrl)}</pre></div></div></div>
+<div class="action-row"><a class="btn-p" href="${E(r.url)}" target="_blank" rel="noopener">View on GitHub ↗</a></div>`;
+}
+function selGhost(el, idx) { selectRow(el, renderGhostDetail(ghostData[idx])); }
+async function loadGhost() {
+  const el = document.getElementById('ghost-list');
+  try {
+    const r = await fetch('/api/ghost'); if (!r.ok) throw new Error('HTTP '+r.status);
+    ghostData = await r.json();
+    document.getElementById('cnt-ghost').textContent = ghostData.length;
+    document.getElementById('ghost-cnt-h').textContent = ghostData.length;
+    el.innerHTML = ghostData.length ? ghostData.map((it,i)=>renderGhostCard(it,i)).join('') : `<div class="gh-empty"><div class="gh-empty-ico">👻</div><p>No ghost repos found</p></div>`;
+  } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
+}
+
 /* ── World Feed ── */
 let feedData = [];
 function renderFeedCard(item, idx) {
@@ -567,7 +605,7 @@ async function loadSecrets() {
 }
 function doRefresh() {
   resetCD(); clearDetail();
-  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets(), loadFeed()])
+  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets(), loadFeed(), loadGhost()])
     .then(() => { document.getElementById('ts').textContent = new Date().toLocaleTimeString(); });
 }
 let cdVal = 60;

@@ -15,6 +15,7 @@ RUN cargo build --release && rm -rf src
 
 # Build the real binary
 COPY src ./src
+COPY assets ./assets
 RUN touch src/main.rs && cargo build --release
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────────────
