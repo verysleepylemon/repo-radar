@@ -25,9 +25,7 @@ impl NotifierSet {
             .map(DiscordNotifier::new);
 
         let telegram = match (&config.telegram_bot_token, &config.telegram_chat_id) {
-            (Some(token), Some(chat_id)) => {
-                Some(TelegramNotifier::new(token, chat_id))
-            }
+            (Some(token), Some(chat_id)) => Some(TelegramNotifier::new(token, chat_id)),
             _ => None,
         };
 

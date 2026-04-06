@@ -1,5 +1,5 @@
-﻿use anyhow::{Context, Result};
-use reqwest::{Client, header};
+use anyhow::{Context, Result};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use tracing::debug;
 
@@ -63,10 +63,7 @@ impl GitHubSource {
         );
         if let Some(token) = &config.github_token {
             let auth = format!("Bearer {}", token);
-            headers.insert(
-                header::AUTHORIZATION,
-                header::HeaderValue::from_str(&auth)?,
-            );
+            headers.insert(header::AUTHORIZATION, header::HeaderValue::from_str(&auth)?);
         }
 
         let client = Client::builder()

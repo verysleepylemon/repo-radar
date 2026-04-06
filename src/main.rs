@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::time::Duration;
 use tokio::time;
@@ -12,7 +12,11 @@ use repo_radar::sources::github::GitHubSource;
 use repo_radar::sources::hackernews::HackerNewsSource;
 
 #[derive(Parser)]
-#[command(name = "repo-radar", version, about = "Real-time GitHub trend detector")]
+#[command(
+    name = "repo-radar",
+    version,
+    about = "Real-time GitHub trend detector"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -25,9 +29,7 @@ enum Commands {
     /// Watch GitHub + HN continuously and send alerts
     Watch,
     /// One-shot spike check for a single repo (e.g. rust-lang/rust)
-    Check {
-        repo: String,
-    },
+    Check { repo: String },
     /// Show the last 20 alerts stored in Redis
     Status,
 }
@@ -120,7 +122,10 @@ async fn run_status(config: Config) -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<40} {:>8} {:>10} {:>8}", "Repo", "Stars", "+24h", "Score");
+    println!(
+        "{:<40} {:>8} {:>10} {:>8}",
+        "Repo", "Stars", "+24h", "Score"
+    );
     println!("{}", "-".repeat(70));
     for a in alerts {
         println!(

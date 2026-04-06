@@ -75,7 +75,10 @@ async fn test_fetch_repo_info_parses_response() {
 
     let config = test_config(&server.url());
     let source = GitHubSource::new(&config).unwrap();
-    let info = source.fetch_repo_info("lemwaiping123-eng/repo-radar").await.unwrap();
+    let info = source
+        .fetch_repo_info("lemwaiping123-eng/repo-radar")
+        .await
+        .unwrap();
 
     assert_eq!(info.full_name, "lemwaiping123-eng/repo-radar");
     assert_eq!(info.stargazers_count, 42);

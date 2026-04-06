@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -53,7 +53,11 @@ pub struct Detector {
 
 impl Detector {
     pub fn new(config: Config, store: RedisStore, notifiers: NotifierSet) -> Self {
-        Self { config, store, notifiers }
+        Self {
+            config,
+            store,
+            notifiers,
+        }
     }
 
     /// Scan GitHub and check each trending repo for spike signals.
@@ -189,7 +193,9 @@ impl Detector {
     async fn fire_alert(&self, alert: &Alert) -> Result<()> {
         self.store.save_alert(alert).await?;
         let dedup_key = format!("spike:{}", alert.repo_full_name);
-        self.store.mark_seen(&dedup_key, self.config.dedup_ttl()).await?;
+        self.store
+            .mark_seen(&dedup_key, self.config.dedup_ttl())
+            .await?;
         self.store.publish_alert(alert).await?;
         self.notifiers.notify(alert).await;
         Ok(())

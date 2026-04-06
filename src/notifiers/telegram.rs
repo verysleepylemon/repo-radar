@@ -49,10 +49,7 @@ impl TelegramNotifier {
             url = alert.url,
         );
 
-        let url = format!(
-            "https://api.telegram.org/bot{}/sendMessage",
-            self.bot_token
-        );
+        let url = format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token);
 
         let body = json!({
             "chat_id": self.chat_id,

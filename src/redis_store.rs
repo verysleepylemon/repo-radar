@@ -1,5 +1,5 @@
 use anyhow::Result;
-use redis::{AsyncCommands, Client, aio::ConnectionManager};
+use redis::{aio::ConnectionManager, AsyncCommands, Client};
 use serde_json;
 use std::time::Duration;
 use tracing::{debug, warn};
@@ -47,7 +47,8 @@ impl RedisStore {
         let json = serde_json::to_string(alert)?;
         conn.lpush::<_, _, ()>(ALERTS_LIST_KEY, &json).await?;
         // Trim to keep list from growing unbounded
-        conn.ltrim::<_, ()>(ALERTS_LIST_KEY, 0, MAX_ALERTS as isize - 1).await?;
+        conn.ltrim::<_, ()>(ALERTS_LIST_KEY, 0, MAX_ALERTS as isize - 1)
+            .await?;
         Ok(())
     }
 
