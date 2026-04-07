@@ -11,7 +11,6 @@ use repo_radar::redis_store::RedisStore;
 use repo_radar::secret_scanner::{new_findings_buf, SecretScanner};
 use repo_radar::sources::github::GitHubSource;
 use repo_radar::sources::hackernews::HackerNewsSource;
-use repo_radar::sources::reddit::RedditSource;
 use repo_radar::sources::rss::RssSource;
 use repo_radar::sources::twitter::TwitterSource;
 use repo_radar::web;
@@ -85,7 +84,6 @@ async fn run_watch(config: Config) -> Result<()> {
     let notifiers = NotifierSet::from_config(&config);
     let github = GitHubSource::new(&config)?;
     let hn = HackerNewsSource::new();
-    let reddit = RedditSource::new(config.reddit_min_score);
     let rss = RssSource::new();
     let twitter = config
         .twitter_bearer_token
@@ -103,11 +101,9 @@ async fn run_watch(config: Config) -> Result<()> {
     let poll_hn = Duration::from_secs(180);
     let poll_rss = Duration::from_secs(config.rss_interval_secs);
     let poll_tw = Duration::from_secs(config.twitter_interval_secs);
-    let poll_rd = Duration::from_secs(900);
 
     run_watch_loop(
-        config, detector, github, hn, reddit, rss, twitter, poll_gh, poll_hn, poll_rss, poll_tw,
-        poll_rd,
+        config, detector, github, hn, rss, twitter, poll_gh, poll_hn, poll_rss, poll_tw,
     )
     .await
 }
@@ -123,7 +119,6 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
     let notifiers = NotifierSet::from_config(&config);
     let github = GitHubSource::new(&config)?;
     let hn = HackerNewsSource::new();
-    let reddit = RedditSource::new(config.reddit_min_score);
     let rss = RssSource::new();
     let twitter = config
         .twitter_bearer_token
@@ -147,7 +142,6 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
     let poll_hn = Duration::from_secs(180);
     let poll_rss = Duration::from_secs(config.rss_interval_secs);
     let poll_tw = Duration::from_secs(config.twitter_interval_secs);
-    let poll_rd = Duration::from_secs(900);
 
     // Background task: purge Redis alerts older than 3 days every 6 hours.
     if let Some(store_purge) = store_web.clone() {
@@ -174,8 +168,8 @@ async fn run_serve(config: Config, port: u16) -> Result<()> {
         res = web::start_server(buf, findings, store_web, port) => {
             if let Err(e) = res { tracing::error!(error = %e, "Web server error"); }
         }
-        res = run_watch_loop(config, detector, github, hn, reddit, rss, twitter,
-                             poll_gh, poll_hn, poll_rss, poll_tw, poll_rd) => {
+        res = run_watch_loop(config, detector, github, hn, rss, twitter,
+                             poll_gh, poll_hn, poll_rss, poll_tw) => {
             if let Err(e) = res { tracing::error!(error = %e, "Watch loop error"); }
         }
     }
@@ -188,20 +182,17 @@ async fn run_watch_loop(
     detector: Detector,
     github: GitHubSource,
     hn: HackerNewsSource,
-    reddit: RedditSource,
     rss: RssSource,
     twitter: Option<TwitterSource>,
     poll_gh: Duration,
     poll_hn: Duration,
     poll_rss: Duration,
     poll_tw: Duration,
-    poll_rd: Duration,
 ) -> Result<()> {
     let mut gh_interval = time::interval(poll_gh);
     let mut hn_interval = time::interval(poll_hn);
     let mut rss_interval = time::interval(poll_rss);
     let mut tw_interval = time::interval(poll_tw);
-    let mut rd_interval = time::interval(poll_rd);
 
     loop {
         tokio::select! {
@@ -218,11 +209,6 @@ async fn run_watch_loop(
             _ = rss_interval.tick() => {
                 if let Err(e) = detector.scan_rss(&rss).await {
                     tracing::warn!(error = %e, "RSS scan error");
-                }
-            }
-            _ = rd_interval.tick() => {
-                if let Err(e) = detector.scan_reddit(&reddit).await {
-                    tracing::warn!(error = %e, "Reddit scan error");
                 }
             }
             _ = tw_interval.tick() => {
@@ -350,22 +336,6 @@ async fn run_doctor(config: Config) -> Result<()> {
         None,
     );
 
-    // ── Reddit ───────────────────────────────────────────────────────────────
-    let rd_result = http
-        .get("https://www.reddit.com/r/rust.json?limit=1")
-        .header("Accept", "application/json")
-        .send()
-        .await;
-    let (rd_ok, rd_note) = match rd_result {
-        Ok(r) if r.status().is_success() => (true, None),
-        Ok(r) => (
-            false,
-            Some(format!("HTTP {} (may be rate-limited)", r.status())),
-        ),
-        Err(e) => (false, Some(e.to_string())),
-    };
-    print_check("Reddit API", "www.reddit.com", rd_ok, rd_note.as_deref());
-
     // ── NPM Registry ─────────────────────────────────────────────────────────
     let npm_ok = http
         .get("https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest")
@@ -449,7 +419,7 @@ async fn run_doctor(config: Config) -> Result<()> {
         "/api/leaks      → leak tracker + NPM monitor",
         "/api/ghost      → ghost accounts",
         "/api/twitter    → Twitter/X (requires token)",
-        "/api/reddit     → Reddit world feed",
+        "/api/viral      → Hot Posts (HN Algolia + Lobsters)",
         "/api/secrets    → secret scanner",
         "/api/newsmap    → tech news map",
         "/api/fusion     → signal fusion",

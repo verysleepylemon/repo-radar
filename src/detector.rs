@@ -9,7 +9,6 @@ use crate::notifiers::{windows_toast, NotifierSet};
 use crate::redis_store::RedisStore;
 use crate::sources::github::GitHubSource;
 use crate::sources::hackernews::HackerNewsSource;
-use crate::sources::reddit::RedditSource;
 use crate::sources::rss::RssSource;
 use crate::sources::twitter::TwitterSource;
 use crate::web::{push_alert, AlertBuf};
@@ -333,47 +332,6 @@ impl Detector {
             self.mark_seen(&key).await;
         }
 
-        Ok(())
-    }
-
-    /// Scan Reddit for viral tech posts.
-    pub async fn scan_reddit(&self, source: &RedditSource) -> Result<()> {
-        info!("Scanning Reddit...");
-        let posts = source.fetch_hot().await?;
-        for post in posts.iter().take(15) {
-            let key = format!("reddit:{}", post.id);
-            if self.is_seen(&key).await {
-                continue;
-            }
-            let body_text = format!("{} {}", post.title, post.selftext);
-            let priority = if is_sensitive(&body_text) {
-                AlertPriority::Critical
-            } else {
-                AlertPriority::Normal
-            };
-            let alert = Alert {
-                repo_full_name: format!(
-                    "r/{}: {}",
-                    post.subreddit,
-                    post.title.chars().take(60).collect::<String>()
-                ),
-                description: Some(post.title.clone()),
-                language: Some(format!("reddit/r/{}", post.subreddit)),
-                stars_now: post.score,
-                stars_gained_24h: 0,
-                forks: post.num_comments,
-                growth_factor: 0.0,
-                score: (post.score as f64) + (post.num_comments as f64 * 0.5),
-                detected_at: Utc::now(),
-                source: AlertSource::Reddit,
-                url: post.permalink.clone(),
-                priority,
-            };
-            if let Err(e) = self.fire_alert(&alert).await {
-                warn!(error = %e, "Failed to fire Reddit alert");
-            }
-            self.mark_seen(&key).await;
-        }
         Ok(())
     }
 

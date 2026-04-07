@@ -153,12 +153,9 @@ pub struct WebState {
     feed_cache: Cache<Vec<WorldFeedItem>>,
     ghost_cache: Cache<Vec<GhostRepo>>,
     twitter_cache: Cache<Vec<VipItem>>,
-    reddit_cache: Cache<Vec<VipItem>>,
+    viral_cache: Cache<Vec<VipItem>>,
     newsmap_cache: Cache<Vec<NewsMapItem>>,
     worldevents_cache: Cache<Vec<WorldEventItem>>,
-    /// Cached anonymous Reddit OAuth token (token, acquired_at).
-    /// Refreshed automatically every 55 min via get_reddit_token().
-    reddit_token_cache: Arc<RwLock<Option<(String, Instant)>>>,
 }
 
 impl WebState {
@@ -188,10 +185,9 @@ impl WebState {
             feed_cache: Arc::new(RwLock::new(None)),
             ghost_cache: Arc::new(RwLock::new(None)),
             twitter_cache: Arc::new(RwLock::new(None)),
-            reddit_cache: Arc::new(RwLock::new(None)),
+            viral_cache: Arc::new(RwLock::new(None)),
             newsmap_cache: Arc::new(RwLock::new(None)),
             worldevents_cache: Arc::new(RwLock::new(None)),
-            reddit_token_cache: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -269,7 +265,7 @@ pub struct FusionResult {
     pub topic: String,
     pub hn_hits: u32,
     pub github_hits: u32,
-    pub reddit_hits: u32,
+    pub devto_hits: u32,
     pub fused_score: f64,
     pub confidence: f64,
     pub items: Vec<FusionItem>,
@@ -822,10 +818,10 @@ async fn api_twitter(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
     Json(items)
 }
 
-async fn api_reddit(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
+async fn api_viral(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
     const TTL: Duration = Duration::from_secs(90);
     {
-        let c = s.reddit_cache.read().await;
+        let c = s.viral_cache.read().await;
         if let Some((at, ref data)) = *c {
             if at.elapsed() < TTL {
                 return Json(data.clone());
@@ -833,7 +829,7 @@ async fn api_reddit(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
         }
     }
     let items = fetch_reddit_viral(&s.http).await.unwrap_or_default();
-    *s.reddit_cache.write().await = Some((Instant::now(), items.clone()));
+    *s.viral_cache.write().await = Some((Instant::now(), items.clone()));
     Json(items)
 }
 
@@ -1761,16 +1757,16 @@ async fn api_fusion(
         .take(80)
         .collect::<String>();
 
-    let (hn_res, gh_res, rd_res) = tokio::join!(
+    let (hn_res, gh_res, dt_res) = tokio::join!(
         fetch_hn_fusion(&s.http, &topic),
         fetch_github_fusion(&s.http, &topic),
-        fetch_reddit_fusion(&s, &topic),
+        fetch_devto_fusion(&s.http, &topic),
     );
 
     let mut all_items: Vec<FusionItem> = Vec::new();
     let mut hn_hits = 0u32;
     let mut github_hits = 0u32;
-    let mut reddit_hits = 0u32;
+    let mut devto_hits = 0u32;
 
     if let Ok(items) = hn_res {
         hn_hits = items.len() as u32;
@@ -1780,8 +1776,8 @@ async fn api_fusion(
         github_hits = items.len() as u32;
         all_items.extend(items);
     }
-    if let Ok(items) = rd_res {
-        reddit_hits = items.len() as u32;
+    if let Ok(items) = dt_res {
+        devto_hits = items.len() as u32;
         all_items.extend(items);
     }
 
@@ -1792,14 +1788,14 @@ async fn api_fusion(
     });
     all_items.truncate(20);
 
-    let total = (hn_hits + github_hits + reddit_hits) as f64;
+    let total = (hn_hits + github_hits + devto_hits) as f64;
     let fused_score = if total == 0.0 {
         0.0
     } else {
-        (hn_hits as f64 * 3.0 + github_hits as f64 * 1.5 + reddit_hits as f64 * 1.0) / (total * 3.0)
+        (hn_hits as f64 * 3.0 + github_hits as f64 * 1.5 + devto_hits as f64 * 1.0) / (total * 3.0)
             * 100.0
     };
-    let sources_active = [hn_hits, github_hits, reddit_hits]
+    let sources_active = [hn_hits, github_hits, devto_hits]
         .iter()
         .filter(|&&x| x > 0)
         .count() as f64;
@@ -1809,7 +1805,7 @@ async fn api_fusion(
         topic,
         hn_hits,
         github_hits,
-        reddit_hits,
+        devto_hits,
         fused_score,
         confidence,
         items: all_items,
@@ -1891,122 +1887,31 @@ async fn fetch_github_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<
     Ok(items)
 }
 
-/// Acquire and cache a Reddit anonymous OAuth token (redlib approach).
-/// Requires REDDIT_CLIENT_ID env var to be set to your Reddit app client_id.
-/// Token is cached for 55 min; auto-refreshed on expiry.
-/// Returns None when REDDIT_CLIENT_ID is unset or acquisition fails.
-async fn get_reddit_token(state: &WebState) -> Option<String> {
-    const TTL: Duration = Duration::from_secs(55 * 60);
-    {
-        let guard = state.reddit_token_cache.read().await;
-        if let Some((ref token, acquired_at)) = *guard {
-            if acquired_at.elapsed() < TTL {
-                return Some(token.clone());
-            }
-        }
-    }
-    let client_id = std::env::var("REDDIT_CLIENT_ID").ok()?;
-    // Stable device_id per process start (not truly random — enough for Reddit)
-    let device_id = format!(
-        "{:016x}{:08x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos(),
-        std::process::id()
-    );
-    let resp = state
-        .http
-        .post("https://www.reddit.com/api/v1/access_token")
-        .basic_auth(&client_id, Some(""))
-        .header(
-            "User-Agent",
-            "android:com.reddit.frontpage:v2023.21.0 (Linux; Android 13; SM-G991B)",
-        )
-        .form(&[
-            (
-                "grant_type",
-                "https://oauth.reddit.com/grants/installed_client",
-            ),
-            ("device_id", &device_id),
-        ])
+/// Dev.to search for fusion — free public API, no auth needed.
+async fn fetch_devto_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<FusionItem>> {
+    let resp = http
+        .get("https://dev.to/api/articles")
+        .query(&[("tag", topic), ("per_page", "10"), ("state", "rising")])
         .send()
-        .await
-        .ok()?;
+        .await?;
     if !resp.status().is_success() {
-        tracing::warn!(
-            status = %resp.status(),
-            "Reddit OAuth token acquisition failed"
-        );
-        return None;
-    }
-    let data: serde_json::Value = resp.json().await.ok()?;
-    let token = data["access_token"].as_str()?.to_string();
-    tracing::info!("Reddit OAuth token acquired (valid ~1 hr)");
-    *state.reddit_token_cache.write().await = Some((token.clone(), Instant::now()));
-    Some(token)
-}
-
-/// Reddit search via anonymous OAuth token (redlib approach) or direct API.
-/// If REDDIT_CLIENT_ID is set, uses oauth.reddit.com with Bearer auth.
-/// Falls back to www.reddit.com with browser UA; returns empty on 403.
-async fn fetch_reddit_fusion(state: &WebState, topic: &str) -> Result<Vec<FusionItem>> {
-    let token = get_reddit_token(state).await;
-    let (api_url, ua) = if token.is_some() {
-        (
-            "https://oauth.reddit.com/search.json",
-            "android:com.reddit.frontpage:v2023.21.0 (Linux; Android 13; SM-G991B)",
-        )
-    } else {
-        (
-            "https://www.reddit.com/search.json",
-            "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
-        )
-    };
-    let mut builder = state
-        .http
-        .get(api_url)
-        .query(&[
-            ("q", topic),
-            ("sort", "top"),
-            ("t", "week"),
-            ("limit", "10"),
-        ])
-        .header("User-Agent", ua);
-    if let Some(ref t) = token {
-        builder = builder.bearer_auth(t);
-    }
-    let resp = builder.send().await?;
-    if !resp.status().is_success() {
-        tracing::debug!(status = %resp.status(), topic, "Reddit fusion search skipped");
         return Ok(vec![]);
     }
-    let data: serde_json::Value = resp.json().await?;
-    let items = data["data"]["children"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
+    let articles: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
+    Ok(articles
         .into_iter()
-        .filter_map(|p| {
-            let d = p["data"].clone();
-            let title = d["title"].as_str()?.to_string();
-            let score = d["score"].as_f64().unwrap_or(0.0);
-            let permalink = d["permalink"].as_str().unwrap_or("").to_string();
-            let ext_url = d["url"].as_str().unwrap_or("").to_string();
-            let url = if ext_url.starts_with("http") {
-                ext_url
-            } else {
-                format!("https://reddit.com{permalink}")
-            };
+        .filter_map(|art| {
+            let title = art["title"].as_str()?.to_string();
+            let url = art["url"].as_str()?.to_string();
+            let score = art["positive_reactions_count"].as_f64().unwrap_or(0.0);
             Some(FusionItem {
                 title,
                 url,
-                source: "Reddit".into(),
+                source: "Dev.to".into(),
                 raw_score: score,
             })
         })
-        .collect();
-    Ok(items)
+        .collect())
 }
 
 // ─── /api/hunt/:username ──────────────────────────────────────────────────────
@@ -2097,7 +2002,7 @@ pub async fn start_server(
         .route("/api/leaks", get(api_leaks))
         .route("/api/ghost", get(api_ghost))
         .route("/api/twitter", get(api_twitter))
-        .route("/api/reddit", get(api_reddit))
+        .route("/api/viral", get(api_viral))
         .route("/api/secrets", get(api_secrets))
         .route("/api/newsmap", get(api_newsmap))
         .route("/api/fusion", get(api_fusion))

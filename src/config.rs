@@ -52,10 +52,6 @@ pub struct Config {
     #[arg(long, env = "TWITTER_BEARER_TOKEN")]
     pub twitter_bearer_token: Option<String>,
 
-    /// Minimum Reddit post score to trigger an alert
-    #[arg(long, env = "REDDIT_MIN_SCORE", default_value_t = 100)]
-    pub reddit_min_score: u64,
-
     /// RSS feed polling interval in seconds
     #[arg(long, env = "RSS_INTERVAL_SECS", default_value_t = 600)]
     pub rss_interval_secs: u64,

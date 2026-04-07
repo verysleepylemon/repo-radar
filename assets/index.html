@@ -357,7 +357,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <button class="tab-btn" data-tab="feed" onclick="switchTab('feed')">🌍 World Feed <span class="tab-cnt" id="cnt-feed">…</span></button>
       <button class="tab-btn" data-tab="ghost" onclick="switchTab('ghost')">👻 Ghost Repos <span class="tab-cnt" id="cnt-ghost">…</span></button>
       <button class="tab-btn" data-tab="twitter" onclick="switchTab('twitter')">🐦 Twitter <span class="tab-cnt" id="cnt-twitter">…</span></button>
-      <button class="tab-btn" data-tab="reddit" onclick="switchTab('reddit')">🔴 Reddit <span class="tab-cnt" id="cnt-reddit">…</span></button>
+      <button class="tab-btn" data-tab="viral" onclick="switchTab('viral')">⚡ Hot Posts <span class="tab-cnt" id="cnt-viral">…</span></button>
       <button class="tab-btn" data-tab="pulse" onclick="switchTab('pulse')">📊 Topic Pulse <span class="tab-cnt" id="cnt-pulse" style="background:rgba(88,166,255,.12);color:var(--blue)">44</span></button>
       <button class="tab-btn" data-tab="newsmap" onclick="switchTab('newsmap')">🗺️ Tech Map <span class="tab-cnt" id="cnt-newsmap">…</span></button>
       <button class="tab-btn" data-tab="fusion" onclick="switchTab('fusion')">🔬 Signal Fusion</button>
@@ -395,7 +395,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
     </div>
     <!-- World Feed -->
     <div id="tab-feed" class="tab-panel">
-      <div class="list-hdr"><span>🌍</span><h2>World Feed</h2><span class="list-cnt-b" id="feed-cnt-h">…</span><span class="list-src">HN · Reddit · dual-tier: 🔴 Critical &amp; ⚪ Normal</span></div>
+      <div class="list-hdr"><span>🌍</span><h2>World Feed</h2><span class="list-cnt-b" id="feed-cnt-h">…</span><span class="list-src">HN · RSS · dual-tier: 🔴 Critical &amp; ⚪ Normal</span></div>
       <div id="feed-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
     </div>
     <!-- Ghost Repos -->
@@ -408,10 +408,10 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <div class="list-hdr"><span>🐦</span><h2>Twitter / X Viral</h2><span class="list-cnt-b" id="twitter-cnt-h">…</span><span class="list-src">Sorted by engagement · run <code>python twikit_feed.py</code> to populate</span></div>
       <div id="twitter-list"><div class="gh-loading"><div class="gh-spin"></div>Loading tweets…</div></div>
     </div>
-    <!-- Reddit -->
-    <div id="tab-reddit" class="tab-panel">
-      <div class="list-hdr"><span>🔴</span><h2>Reddit Viral</h2><span class="list-cnt-b" id="reddit-cnt-h">…</span><span class="list-src">Hot &amp; Rising · sorted by upvotes</span></div>
-      <div id="reddit-list"><div class="gh-loading"><div class="gh-spin"></div>Loading Reddit…</div></div>
+    <!-- Hot Posts (HN Algolia + Lobsters) -->
+    <div id="tab-viral" class="tab-panel">
+      <div class="list-hdr"><span>⚡</span><h2>Hot Posts</h2><span class="list-cnt-b" id="viral-cnt-h">…</span><span class="list-src">HN Algolia · Lobsters · sorted by score</span></div>
+      <div id="viral-list"><div class="gh-loading"><div class="gh-spin"></div>Loading…</div></div>
     </div>
     <!-- Topic Pulse -->
     <div id="tab-pulse" class="tab-panel">
@@ -442,7 +442,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <div class="list-hdr">
         <span>🗺️</span><h2>Tech News Map</h2>
         <span class="list-cnt-b" id="cnt-newsmap-h">…</span>
-        <span class="list-src">HN · Reddit · geo-tagged · TV/entertainment filtered</span>
+        <span class="list-src">HN · RSS · geo-tagged · TV/entertainment filtered</span>
         <label style="margin-left:auto;font-size:.8rem;color:var(--fg-s)">
           <input type="checkbox" id="nm-critical-only" onchange="renderNewsmap()"> Critical only
         </label>
@@ -461,7 +461,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
     <!-- Signal Fusion -->
     <div id="tab-fusion" class="tab-panel">
       <div class="list-hdr"><span>🔬</span><h2>Signal Fusion</h2>
-        <span class="list-src">HN × 3 · GitHub × 1.5 · Reddit × 1 — multi-source intelligence</span>
+        <span class="list-src">HN × 3 · GitHub × 1.5 · Dev.to × 1 — multi-source intelligence</span>
       </div>
       <div style="display:flex;gap:8px;margin:12px 0 16px">
         <input id="fusion-input" class="fusion-inp" placeholder="Enter topic e.g. 'LLM inference'" value="AI safety"
@@ -477,8 +477,8 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
           <span style="font-size:.8rem">GitHub</span>
           <div style="background:var(--bg-s);border-radius:4px;height:8px"><div id="fm-gh" style="height:8px;border-radius:4px;background:#58a6ff;transition:width .5s"></div></div>
           <span id="fm-gh-n" style="font-size:.8rem;text-align:right"></span>
-          <span style="font-size:.8rem">Reddit</span>
-          <div style="background:var(--bg-s);border-radius:4px;height:8px"><div id="fm-rd" style="height:8px;border-radius:4px;background:#ff6e40;transition:width .5s"></div></div>
+          <span style="font-size:.8rem">Dev.to</span>
+          <div style="background:var(--bg-s);border-radius:4px;height:8px"><div id="fm-rd" style="height:8px;border-radius:4px;background:#3fb950;transition:width .5s"></div></div>
           <span id="fm-rd-n" style="font-size:.8rem;text-align:right"></span>
         </div>
         <div style="margin-top:12px;display:flex;gap:24px">
@@ -828,27 +828,27 @@ async function loadTwitter() {
   } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
 }
 
-/* ── Reddit ── */
-let redditData = [];
-function renderRedditCard(item, idx) {
+/* ── Hot Posts (HN Algolia + Lobsters) ── */
+let viralData = [];
+function renderViralCard(item, idx) {
   const comments = item.vip_match ? `<span class="lbl lbl-gray">${E(item.vip_match)}</span>` : '';
   const score = item.score ? `<span class="lbl lbl-orange">▲ ${K(item.score)}</span>` : '';
-  return `<div class="item-row" onclick="selReddit(this,${idx})"><div class="item-ic" style="background:rgba(255,69,0,.12);font-size:15px">🔴</div><div class="item-body"><div class="item-title">${E(item.title)}</div><div class="item-meta">${item.by?`<span>u/${E(item.by)}</span>`:''}<span>${E(item.source||'Reddit')}</span>${item.time?`<span>${ago(item.time)}</span>`:''}</div><div class="item-labels">${score}${comments}</div></div></div>`;
+  return `<div class="item-row" onclick="selViral(this,${idx})"><div class="item-ic" style="background:rgba(240,165,0,.12);font-size:15px">⚡</div><div class="item-body"><div class="item-title">${E(item.title)}</div><div class="item-meta">${item.by?`<span>${E(item.by)}</span>`:''}<span>${E(item.source||'HN')}</span>${item.time?`<span>${ago(item.time)}</span>`:''}</div><div class="item-labels">${score}${comments}</div></div></div>`;
 }
-function renderRedditDetail(item) {
-  return `<div class="d-top"><div class="d-icon" style="background:rgba(255,69,0,.12);font-size:22px">🔴</div><div class="d-title-g"><div class="d-title">${E(item.title)}</div><div class="d-labels">${item.score?`<span class="lbl lbl-orange">▲ ${K(item.score)} upvotes</span>`:''}${item.vip_match?`<span class="lbl lbl-gray">${E(item.vip_match)}</span>`:''}</div></div></div><div class="d-sec"><div class="d-sec-title">Details</div><table class="meta-tbl"><tr><td>Subreddit</td><td>${E(item.source||'Reddit')}</td></tr>${item.by?`<tr><td>Posted by</td><td>u/${E(item.by)}</td></tr>`:''}${item.time?`<tr><td>Posted</td><td>${ago(item.time)}</td></tr>`:''}${item.score?`<tr><td>Upvotes</td><td>▲ ${K(item.score)}</td></tr>`:''}${item.vip_match?`<tr><td>Comments</td><td>${E(item.vip_match)}</td></tr>`:''}</table></div><div class="d-sec"><div class="d-sec-title">URL</div><div class="code-block"><div class="code-hdr"><span>link</span><button class="copy-btn" onclick="copyText(this,'${E(item.url)}')">📋 Copy</button></div><div class="code-body"><pre>${E(item.url)}</pre></div></div></div><div class="action-row"><a class="btn-p" href="${E(item.url)}" target="_blank" rel="noopener">Read on Reddit ↗</a></div>`;
+function renderViralDetail(item) {
+  return `<div class="d-top"><div class="d-icon" style="background:rgba(240,165,0,.12);font-size:22px">⚡</div><div class="d-title-g"><div class="d-title">${E(item.title)}</div><div class="d-labels">${item.score?`<span class="lbl lbl-orange">▲ ${K(item.score)} points</span>`:''}${item.vip_match?`<span class="lbl lbl-gray">${E(item.vip_match)}</span>`:''}</div></div></div><div class="d-sec"><div class="d-sec-title">Details</div><table class="meta-tbl"><tr><td>Source</td><td>${E(item.source||'HN')}</td></tr>${item.by?`<tr><td>Posted by</td><td>${E(item.by)}</td></tr>`:''}${item.time?`<tr><td>Posted</td><td>${ago(item.time)}</td></tr>`:''}${item.score?`<tr><td>Score</td><td>▲ ${K(item.score)}</td></tr>`:''}${item.vip_match?`<tr><td>Comments</td><td>${E(item.vip_match)}</td></tr>`:''}</table></div><div class="d-sec"><div class="d-sec-title">URL</div><div class="code-block"><div class="code-hdr"><span>link</span><button class="copy-btn" onclick="copyText(this,'${E(item.url)}')">📋 Copy</button></div><div class="code-body"><pre>${E(item.url)}</pre></div></div></div><div class="action-row"><a class="btn-p" href="${E(item.url)}" target="_blank" rel="noopener">Open ↗</a></div>`;
 }
-function selReddit(el, idx) { selectRow(el, renderRedditDetail(redditData[idx])); }
-async function loadReddit() {
-  const el = document.getElementById('reddit-list');
+function selViral(el, idx) { selectRow(el, renderViralDetail(viralData[idx])); }
+async function loadViral() {
+  const el = document.getElementById('viral-list');
   try {
-    const r = await fetch('/api/reddit'); if (!r.ok) throw new Error('HTTP '+r.status);
-    redditData = await r.json();
-    document.getElementById('cnt-reddit').textContent = redditData.length;
-    document.getElementById('reddit-cnt-h').textContent = redditData.length;
-    el.innerHTML = redditData.length
-      ? redditData.map((it,i)=>renderRedditCard(it,i)).join('')
-      : `<div class="gh-empty"><div class="gh-empty-ico">🔴</div><p>No Reddit posts found</p></div>`;
+    const r = await fetch('/api/viral'); if (!r.ok) throw new Error('HTTP '+r.status);
+    viralData = await r.json();
+    document.getElementById('cnt-viral').textContent = viralData.length;
+    document.getElementById('viral-cnt-h').textContent = viralData.length;
+    el.innerHTML = viralData.length
+      ? viralData.map((it,i)=>renderViralCard(it,i)).join('')
+      : `<div class="gh-empty"><div class="gh-empty-ico">⚡</div><p>No posts found</p></div>`;
   } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
 }
 
@@ -1115,13 +1115,13 @@ async function runFusion() {
   meters.style.display = 'none';
   try {
     const data = await fetch('/api/fusion?topic=' + encodeURIComponent(topic)).then(r => r.json());
-    const maxHits = Math.max(data.hn_hits, data.github_hits, data.reddit_hits, 1);
+    const maxHits = Math.max(data.hn_hits, data.github_hits, data.devto_hits, 1);
     document.getElementById('fm-hn').style.width  = (data.hn_hits     / maxHits * 100) + '%';
     document.getElementById('fm-gh').style.width  = (data.github_hits / maxHits * 100) + '%';
-    document.getElementById('fm-rd').style.width  = (data.reddit_hits / maxHits * 100) + '%';
+    document.getElementById('fm-rd').style.width  = (data.devto_hits  / maxHits * 100) + '%';
     document.getElementById('fm-hn-n').textContent  = data.hn_hits;
     document.getElementById('fm-gh-n').textContent  = data.github_hits;
-    document.getElementById('fm-rd-n').textContent  = data.reddit_hits;
+    document.getElementById('fm-rd-n').textContent  = data.devto_hits;
     document.getElementById('fm-score').textContent = data.fused_score.toFixed(1);
     document.getElementById('fm-conf').textContent  = data.confidence.toFixed(0) + '%';
     meters.style.display = '';
@@ -1179,7 +1179,7 @@ async function runHunt() {
   resetCD(); clearDetail();
   loadRanking();
   loadNewsmap();
-  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets(), loadFeed(), loadGhost(), loadTwitter(), loadReddit()])
+  Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets(), loadFeed(), loadGhost(), loadTwitter(), loadViral()])
     .then(() => { document.getElementById('ts').textContent = new Date().toLocaleTimeString(); });
 }
 let cdVal = 60;
