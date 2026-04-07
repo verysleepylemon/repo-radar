@@ -152,6 +152,8 @@ pub struct WebState {
     npm_cache: Cache<Vec<LeakItem>>,
     feed_cache: Cache<Vec<WorldFeedItem>>,
     ghost_cache: Cache<Vec<GhostRepo>>,
+    twitter_cache: Cache<Vec<VipItem>>,
+    reddit_cache: Cache<Vec<VipItem>>,
 }
 
 impl WebState {
@@ -180,6 +182,8 @@ impl WebState {
             npm_cache: Arc::new(RwLock::new(None)),
             feed_cache: Arc::new(RwLock::new(None)),
             ghost_cache: Arc::new(RwLock::new(None)),
+            twitter_cache: Arc::new(RwLock::new(None)),
+            reddit_cache: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -719,36 +723,82 @@ async fn api_ghost(State(s): State<Arc<WebState>>) -> Json<Vec<GhostRepo>> {
     Json(items)
 }
 
+async fn api_twitter(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
+    const TTL: Duration = Duration::from_secs(120);
+    {
+        let c = s.twitter_cache.read().await;
+        if let Some((at, ref data)) = *c {
+            if at.elapsed() < TTL {
+                return Json(data.clone());
+            }
+        }
+    }
+    let items = fetch_twitter_viral().await.unwrap_or_default();
+    *s.twitter_cache.write().await = Some((Instant::now(), items.clone()));
+    Json(items)
+}
+
+async fn api_reddit(State(s): State<Arc<WebState>>) -> Json<Vec<VipItem>> {
+    const TTL: Duration = Duration::from_secs(90);
+    {
+        let c = s.reddit_cache.read().await;
+        if let Some((at, ref data)) = *c {
+            if at.elapsed() < TTL {
+                return Json(data.clone());
+            }
+        }
+    }
+    let items = fetch_reddit_viral(&s.http).await.unwrap_or_default();
+    *s.reddit_cache.write().await = Some((Instant::now(), items.clone()));
+    Json(items)
+}
+
 /// Search GitHub for repos that look like source dumps:
 /// many stars, very few commits (≤ 5).  Sort by stars desc (biggest first).
 async fn fetch_ghost_repos(http: &reqwest::Client) -> Result<Vec<GhostRepo>> {
-    // Look back 6 months — catches recent viral dumps without being too broad
-    let since = (Utc::now() - CDuration::days(180))
+    // Two complementary searches:
+    // 1. All-time high-star original repos (classic viral dumps / famous leaks)
+    // 2. Recent mid-star original repos created in the last year (fresh dumps)
+    let year_ago = (Utc::now() - CDuration::days(365))
         .format("%Y-%m-%d")
         .to_string();
 
-    let q = format!("stars:>50 fork:false created:>{since}");
-    let resp = http
-        .get("https://api.github.com/search/repositories")
-        .query(&[
-            ("q", q.as_str()),
-            ("sort", "stars"),
-            ("order", "desc"),
-            ("per_page", "30"),
-        ])
-        .header("Accept", "application/vnd.github+json")
-        .send()
-        .await?;
+    let search_queries: Vec<String> = vec![
+        "stars:>500 fork:false".to_string(),
+        format!("stars:>200 fork:false created:>{year_ago}"),
+    ];
 
-    if !resp.status().is_success() {
-        anyhow::bail!("GitHub search {}", resp.status());
+    let mut all_items: Vec<serde_json::Value> = Vec::new();
+    for q in &search_queries {
+        if let Ok(resp) = http
+            .get("https://api.github.com/search/repositories")
+            .query(&[
+                ("q", q.as_str()),
+                ("sort", "stars"),
+                ("order", "desc"),
+                ("per_page", "30"),
+            ])
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+        {
+            if resp.status().is_success() {
+                if let Ok(data) = resp.json::<serde_json::Value>().await {
+                    if let Some(arr) = data["items"].as_array() {
+                        all_items.extend_from_slice(arr);
+                    }
+                }
+            }
+        }
+        // Brief pause between searches to stay within the 10-searches/min limit
+        tokio::time::sleep(Duration::from_millis(400)).await;
     }
 
-    let data: serde_json::Value = resp.json().await?;
-    let items = match data["items"].as_array() {
-        Some(a) => a.clone(),
-        None => return Ok(vec![]),
-    };
+    // Deduplicate by repo id across both queries
+    let mut seen_ids = std::collections::HashSet::new();
+    all_items.retain(|r| seen_ids.insert(r["id"].as_u64().unwrap_or(0)));
+
+    let items = all_items;
 
     let mut results = Vec::new();
     for repo in &items {
@@ -759,8 +809,10 @@ async fn fetch_ghost_repos(http: &reqwest::Client) -> Result<Vec<GhostRepo>> {
             None => continue,
         };
 
-        // Ghost heuristic: abnormally high stars-to-forks ratio
-        let ghost_ratio = forks < (stars / 15).max(1) || (stars >= 500 && forks < 10);
+        // Ghost heuristic: low forks relative to stars (suspicious dump profile).
+        // stars/6 threshold is more permissive than the old stars/15, catching
+        // dumps that have accumulated a moderate number of archival forks.
+        let ghost_ratio = forks < (stars / 6).max(2) || (stars >= 1000 && forks < 50);
         if !ghost_ratio {
             continue;
         }
@@ -827,6 +879,120 @@ async fn fetch_commit_count(http: &reqwest::Client, full_name: &str) -> Result<u
     }
     let commits: serde_json::Value = resp.json().await?;
     Ok(commits.as_array().map(|a| a.len() as u32).unwrap_or(0))
+}
+
+/// Twitter / X viral feed — reads the twikit_cache.json populated by the
+/// companion `twikit_feed.py` Python sidecar.  Returns items sorted by
+/// engagement (retweets × 5 + likes + replies × 2 + quotes × 3).
+/// If the cache file does not exist yet, returns an empty list gracefully.
+async fn fetch_twitter_viral() -> Result<Vec<VipItem>> {
+    use crate::sources::twitter::TwitterSource;
+    let tw = TwitterSource::new("");
+    let tweets = tw.search_tech_trending(0).await.unwrap_or_default();
+    let mut items: Vec<VipItem> = tweets
+        .into_iter()
+        .map(|t| {
+            let eng = t.public_metrics.engagement();
+            let eng_label = if eng >= 1000 {
+                format!("🔥 {:.1}k eng", eng as f64 / 1000.0)
+            } else {
+                format!("🔥 {} eng", eng)
+            };
+            let user = t.username.as_deref().unwrap_or("unknown").to_string();
+            VipItem {
+                title: t.text,
+                url: format!("https://twitter.com/{user}/status/{}", t.id),
+                source: format!("@{user}"),
+                score: Some(t.public_metrics.like_count as u32),
+                by: Some(user),
+                vip_match: Some(eng_label),
+                time: None,
+            }
+        })
+        .collect();
+    items.sort_by(|a, b| b.score.cmp(&a.score));
+    items.truncate(50);
+    Ok(items)
+}
+
+/// Reddit viral feed — fetches hot + rising posts from key tech subreddits,
+/// deduplicates by URL, and sorts by upvote score descending so the most
+/// engaging posts appear first.
+async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
+    const VIRAL_SUBS: &[&str] = &[
+        "MachineLearning",
+        "LocalLLaMA",
+        "artificial",
+        "programming",
+        "technology",
+        "netsec",
+        "worldnews",
+        "science",
+        "singularity",
+        "OpenAI",
+        "ChatGPT",
+        "datascience",
+    ];
+    let mut items: Vec<VipItem> = Vec::new();
+    for sub in VIRAL_SUBS {
+        for sort in &["hot", "rising"] {
+            let url = format!("https://www.reddit.com/r/{sub}/{sort}.json?limit=20");
+            if let Ok(resp) = http
+                .get(&url)
+                .header("User-Agent", "repo-radar/1.0 reddit-viral")
+                .timeout(Duration::from_secs(8))
+                .send()
+                .await
+            {
+                if resp.status().is_success() {
+                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                        if let Some(posts) = data["data"]["children"].as_array() {
+                            for post in posts {
+                                let d = &post["data"];
+                                let score = d["score"].as_u64().unwrap_or(0);
+                                if score < 100 {
+                                    continue;
+                                }
+                                let title =
+                                    d["title"].as_str().unwrap_or("").to_string();
+                                if title.is_empty() {
+                                    continue;
+                                }
+                                let post_url =
+                                    d["url"].as_str().unwrap_or("").to_string();
+                                let permalink =
+                                    d["permalink"].as_str().unwrap_or("");
+                                let comments =
+                                    d["num_comments"].as_u64().unwrap_or(0);
+                                items.push(VipItem {
+                                    title,
+                                    url: if post_url.starts_with("http") {
+                                        post_url
+                                    } else {
+                                        format!("https://reddit.com{permalink}")
+                                    },
+                                    source: format!("r/{sub}"),
+                                    score: Some(score as u32),
+                                    by: d["author"].as_str().map(Into::into),
+                                    vip_match: Some(format!("💬 {comments}")),
+                                    time: d["created_utc"]
+                                        .as_f64()
+                                        .map(|t| t as i64),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Deduplicate by URL (a post may appear in both hot + rising)
+    let mut seen = std::collections::HashSet::new();
+    items.retain(|it| seen.insert(it.url.clone()));
+    // Sort by upvote score descending
+    items.sort_by(|a, b| b.score.cmp(&a.score));
+    items.truncate(80);
+    Ok(items)
 }
 
 async fn fetch_github_trending(http: &reqwest::Client) -> Result<serde_json::Value> {
@@ -1268,6 +1434,8 @@ pub async fn start_server(
         .route("/api/trending", get(api_trending))
         .route("/api/leaks", get(api_leaks))
         .route("/api/ghost", get(api_ghost))
+        .route("/api/twitter", get(api_twitter))
+        .route("/api/reddit", get(api_reddit))
         .route("/api/secrets", get(api_secrets))
         .with_state(state)
         .layer(CorsLayer::permissive());
