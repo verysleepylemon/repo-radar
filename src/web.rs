@@ -1440,23 +1440,30 @@ async fn fetch_world_feed(http: &reqwest::Client) -> Result<Vec<WorldFeedItem>> 
         ("Lobsters RSS",    "https://lobste.rs/rss"),
         ("Google Geopolitics", "https://news.google.com/rss/search?q=(sanctions+OR+conflict+OR+war+OR+election+OR+treaty)+(government+OR+military+OR+tech)&hl=en-US&gl=US&ceid=US:en"),
     ];
-    let rss_src = crate::sources::rss::RssSource::new();
-    for (feed_name, feed_url) in world_rss {
-        if let Ok(feed_items) = rss_src.fetch_one(feed_name, feed_url).await {
-            for fi in feed_items {
-                let combined = format!("{} {}", fi.title, fi.link);
-                let (tier, tags) = classify_tier(&combined);
-                items.push(WorldFeedItem {
-                    title: fi.title,
-                    url: fi.link,
-                    source: fi.feed_name,
-                    score: None,
-                    by: None,
-                    time: fi.published.map(|dt| dt.timestamp()),
-                    tier: tier.into(),
-                    tags,
-                });
-            }
+    // Fetch all RSS feeds in parallel (was sequential — huge latency improvement)
+    let rss_src = std::sync::Arc::new(crate::sources::rss::RssSource::new());
+    let rss_futs: Vec<_> = world_rss
+        .iter()
+        .map(|&(name, url)| {
+            let rss = std::sync::Arc::clone(&rss_src);
+            async move { rss.fetch_one(name, url).await.unwrap_or_default() }
+        })
+        .collect();
+    let rss_results = futures::future::join_all(rss_futs).await;
+    for feed_items in rss_results {
+        for fi in feed_items {
+            let combined = format!("{} {}", fi.title, fi.link);
+            let (tier, tags) = classify_tier(&combined);
+            items.push(WorldFeedItem {
+                title: fi.title,
+                url: fi.link,
+                source: fi.feed_name,
+                score: None,
+                by: None,
+                time: fi.published.map(|dt| dt.timestamp()),
+                tier: tier.into(),
+                tags,
+            });
         }
     }
 
@@ -1621,8 +1628,14 @@ async fn api_worldevents(State(s): State<Arc<WebState>>) -> Json<Vec<WorldEventI
 
     let mut events: Vec<WorldEventItem> = Vec::new();
 
+    // Run world-feed and GitHub fetch concurrently
+    let (feed_result, gh_result) = tokio::join!(
+        fetch_world_feed(&s.http),
+        fetch_github_trending(&s.http)
+    );
+
     // ── News items from world feed ──────────────────────────────────────────
-    let feed = fetch_world_feed(&s.http).await.unwrap_or_default();
+    let feed = feed_result.unwrap_or_default();
     for item in feed {
         if let Some((lat, lng, country)) = geo_tag(&item.title, &item.url) {
             events.push(WorldEventItem {
@@ -1641,7 +1654,7 @@ async fn api_worldevents(State(s): State<Arc<WebState>>) -> Json<Vec<WorldEventI
     }
 
     // ── GitHub trending repos ───────────────────────────────────────────────
-    if let Ok(gh_data) = fetch_github_trending(&s.http).await {
+    if let Ok(gh_data) = gh_result {
         if let Some(repos) = gh_data.as_array() {
             for repo in repos {
                 let name = repo["name"].as_str().unwrap_or("").to_string();

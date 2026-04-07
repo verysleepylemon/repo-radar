@@ -1,349 +1,591 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>World Monitor — repo-radar</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0f; color: #e0e6f0; font-family: 'Courier New', monospace; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>World Signals · repo-radar</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050810;overflow:hidden;font-family:'Courier New',monospace;color:#c9d1d9}
+canvas{position:fixed;top:0;left:0;width:100%;height:100%;display:block}
 
-    header {
-      background: #0d1117;
-      border-bottom: 1px solid #1e3a5f;
-      padding: 10px 20px;
-      display: flex;
-      align-items: center;
-      gap: 20px;
-      z-index: 1000;
-      flex-shrink: 0;
-    }
-    .logo { color: #58a6ff; font-size: 1.1rem; font-weight: bold; letter-spacing: 2px; }
-    .stats { display: flex; gap: 18px; font-size: 0.73rem; color: #8b949e; }
-    .stat-val { color: #58a6ff; font-weight: bold; }
+/* ── Header ── */
+#hdr{
+  position:fixed;top:0;left:0;right:0;height:52px;
+  background:rgba(4,7,15,0.88);backdrop-filter:blur(14px);
+  border-bottom:1px solid rgba(20,50,100,0.46);
+  display:flex;align-items:center;gap:16px;padding:0 16px;z-index:100
+}
+.logo{color:#3a8fff;font-size:1rem;font-weight:bold;letter-spacing:2.5px;white-space:nowrap;
+  text-shadow:0 0 18px rgba(58,143,255,0.35)}
+.stats{display:flex;gap:14px;font-size:0.65rem;color:#6a7a90}
+.sv{color:#3a8fff;font-weight:bold}.sv.c{color:#ff5544}.sv.g{color:#f0c040}
+.filt{margin-left:auto;display:flex;gap:5px}
+.fb{border:1px solid #0e1e35;background:rgba(255,255,255,0.02);color:#4a5a70;
+  padding:3px 11px;cursor:pointer;font-size:0.65rem;border-radius:20px;
+  font-family:'Courier New',monospace;transition:all 0.3s;white-space:nowrap}
+.fb:hover{border-color:#3a8fff;color:#3a8fff;background:rgba(58,143,255,0.06)}
+.fb.on{border-color:#3a8fff;color:#3a8fff;background:rgba(58,143,255,0.1)}
+.fb.on.fc{border-color:#ff5544;color:#ff5544;background:rgba(255,85,68,0.08)}
+.fb.on.fg{border-color:#f0c040;color:#f0c040;background:rgba(240,192,64,0.08)}
+.fb.on.fn{border-color:#66aaff;color:#66aaff;background:rgba(102,170,255,0.06)}
+.rtxt{font-size:0.6rem;color:#1e3050;white-space:nowrap}
+.back{color:#3a8fff;text-decoration:none;font-size:0.65rem;padding:3px 9px;
+  border:1px solid #0e1e35;border-radius:14px;transition:background 0.2s;white-space:nowrap}
+.back:hover{background:rgba(58,143,255,0.08)}
 
-    .filters { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-    .filter-btn {
-      background: #161b22;
-      border: 1px solid #30363d;
-      color: #8b949e;
-      padding: 4px 12px;
-      cursor: pointer;
-      font-size: 0.73rem;
-      border-radius: 3px;
-      font-family: 'Courier New', monospace;
-      transition: all 0.2s;
-    }
-    .filter-btn:hover, .filter-btn.active {
-      border-color: #58a6ff;
-      color: #58a6ff;
-      background: rgba(88,166,255,0.08);
-    }
-    .filter-btn.active.critical { border-color: #ff4444; color: #ff4444; background: rgba(255,68,68,0.08); }
-    .filter-btn.active.github-f { border-color: #f0c040; color: #f0c040; background: rgba(240,192,64,0.08); }
+/* ── Loading ── */
+#loading{position:fixed;inset:0;background:#050810;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:500;transition:opacity 1s ease}
+#loading.gone{opacity:0;pointer-events:none}
+.lorbs{display:flex;gap:14px;margin-bottom:28px}
+.lo{width:14px;height:14px;border-radius:50%;animation:ob 1.5s ease-in-out infinite}
+.lo:nth-child(1){background:radial-gradient(circle at 35% 35%,#88b8ff,#3a8fff);box-shadow:0 0 10px #3a8fff;animation-delay:0s}
+.lo:nth-child(2){background:radial-gradient(circle at 35% 35%,#ff8877,#ff5544);box-shadow:0 0 10px #ff5544;animation-delay:.22s}
+.lo:nth-child(3){background:radial-gradient(circle at 35% 35%,#ffe066,#f0c040);box-shadow:0 0 10px #f0c040;animation-delay:.44s}
+.lo:nth-child(4){background:radial-gradient(circle at 35% 35%,#88ffcc,#22cc88);box-shadow:0 0 10px #22cc88;animation-delay:.66s}
+.lo:nth-child(5){background:radial-gradient(circle at 35% 35%,#cc88ff,#9944ff);box-shadow:0 0 10px #9944ff;animation-delay:.88s}
+@keyframes ob{
+  0%,100%{transform:translateY(0) scale(0.82);opacity:0.3}
+  50%{transform:translateY(-22px) scale(1.28);opacity:1}
+}
+.ltxt{color:#2a4060;font-size:0.72rem;letter-spacing:3px;animation:lp 2s ease-in-out infinite}
+@keyframes lp{0%,100%{opacity:0.4}50%{opacity:0.9}}
+.lsub{color:#142030;font-size:0.58rem;margin-top:9px;letter-spacing:1px}
 
-    .refresh-info { font-size: 0.65rem; color: #565f6a; white-space: nowrap; }
-    .back-link {
-      color: #58a6ff;
-      text-decoration: none;
-      font-size: 0.73rem;
-      padding: 4px 10px;
-      border: 1px solid #1e3a5f;
-      border-radius: 3px;
-      transition: background 0.2s;
-    }
-    .back-link:hover { background: rgba(88,166,255,0.08); }
+/* ── Popup ── */
+#popup{position:fixed;z-index:300;left:50%;top:50%;
+  transform:translate(-50%,-50%) scale(0.72) translateY(22px);
+  opacity:0;pointer-events:none;width:370px;max-width:92vw;
+  transition:transform 0.38s cubic-bezier(.34,1.56,.64,1),opacity 0.24s ease}
+#popup.show{transform:translate(-50%,-50%) scale(1) translateY(0);opacity:1;pointer-events:all}
+.pi{background:rgba(4,8,20,0.97);backdrop-filter:blur(22px);
+  border:1px solid rgba(58,143,255,0.16);border-radius:16px;
+  padding:22px 22px 18px;
+  box-shadow:0 0 80px rgba(20,60,180,0.18),0 12px 60px rgba(0,0,0,0.7)}
+.pbadge{font-size:0.57rem;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px}
+.ptitle{font-size:0.87rem;color:#dce8f8;line-height:1.48;margin-bottom:13px;font-weight:600}
+.pmeta{font-size:0.67rem;color:#445566;margin-bottom:15px;line-height:1.7}
+.pmeta b{color:#7a9abf}
+.pact{display:flex;gap:8px;align-items:center}
+.plink{color:#3a8fff;font-size:0.7rem;text-decoration:none;
+  padding:5px 13px;border:1px solid rgba(58,143,255,0.26);border-radius:20px;transition:all 0.2s}
+.plink:hover{background:rgba(58,143,255,0.1)}
+.pclose{margin-left:auto;cursor:pointer;color:#3a4a5a;font-size:0.85rem;
+  padding:4px 9px;border:1px solid #0e1e35;border-radius:8px;transition:all 0.2s}
+.pclose:hover{color:#ff5544;border-color:#ff5544}
 
-    .main { display: flex; flex: 1; overflow: hidden; }
-
-    #sidebar {
-      width: 310px;
-      background: #0d1117;
-      border-right: 1px solid #1e3a5f;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      flex-shrink: 0;
-    }
-    .sidebar-header {
-      padding: 8px 15px;
-      border-bottom: 1px solid #1e3a5f;
-      font-size: 0.65rem;
-      color: #565f6a;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      background: #0a0a0f;
-      flex-shrink: 0;
-    }
-    #event-list { overflow-y: auto; flex: 1; }
-    .event-item {
-      padding: 9px 14px;
-      border-bottom: 1px solid #0d1117;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .event-item:hover { background: #161b22; }
-    .event-badge {
-      font-size: 0.6rem;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 3px;
-    }
-    .event-item.ev-critical .event-badge { color: #ff6060; }
-    .event-item.ev-news .event-badge { color: #58a6ff; }
-    .event-item.ev-github .event-badge { color: #f0c040; }
-    .event-title { font-size: 0.77rem; line-height: 1.4; color: #c9d1d9; margin-bottom: 3px; }
-    .event-meta { font-size: 0.63rem; color: #565f6a; }
-
-    #map { flex: 1; background: #0a0a0f; }
-
-    .legend {
-      background: rgba(13,17,23,0.92) !important;
-      border: 1px solid #1e3a5f !important;
-      border-radius: 2px;
-      padding: 8px 13px;
-      font-size: 0.7rem;
-      color: #8b949e;
-      font-family: 'Courier New', monospace;
-    }
-    .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
-    .legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-
-    .empty-state { padding: 30px 15px; text-align: center; color: #565f6a; font-size: 0.75rem; }
-
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: #0a0a0f; }
-    ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
-  </style>
+/* ── Tooltip ── */
+#tip{position:fixed;pointer-events:none;z-index:200;opacity:0;
+  background:rgba(4,8,20,0.92);border:1px solid rgba(58,143,255,0.14);
+  border-radius:7px;padding:6px 10px;max-width:230px;
+  font-size:0.63rem;color:#a0b8d0;line-height:1.5;transition:opacity 0.14s}
+#tip.show{opacity:1}
+</style>
 </head>
 <body>
 
-<header>
-  <div class="logo">◈ WORLD MONITOR</div>
-  <div class="stats">
-    <span>EVENTS <span class="stat-val" id="stat-total">—</span></span>
-    <span>CRITICAL <span class="stat-val" id="stat-critical" style="color:#ff6060">—</span></span>
-    <span>COUNTRIES <span class="stat-val" id="stat-countries">—</span></span>
-    <span>GITHUB <span class="stat-val" id="stat-github" style="color:#f0c040">—</span></span>
-  </div>
-  <div class="filters">
-    <button class="filter-btn active" data-filter="all">All</button>
-    <button class="filter-btn critical" data-filter="critical">Critical</button>
-    <button class="filter-btn github-f" data-filter="github">GitHub</button>
-    <button class="filter-btn" data-filter="news">News</button>
-    <span class="refresh-info" id="refresh-info">⟳ —</span>
-  </div>
-  <a href="/" class="back-link">← Dashboard</a>
-</header>
+<canvas id="c"></canvas>
 
-<div class="main">
-  <div id="sidebar">
-    <div class="sidebar-header">Recent Events &nbsp;·&nbsp; <span id="sidebar-count">0</span> shown</div>
-    <div id="event-list"><div class="empty-state">Loading…</div></div>
+<div id="hdr">
+  <div class="logo">◈ WORLD SIGNALS</div>
+  <div class="stats">
+    <span>LIVE <span class="sv" id="s-tot">—</span></span>
+    <span>⚠ <span class="sv c" id="s-crit">—</span></span>
+    <span>⊙ <span class="sv" id="s-coun">—</span></span>
+    <span>★ <span class="sv g" id="s-gh">—</span></span>
   </div>
-  <div id="map"></div>
+  <div class="filt">
+    <button class="fb on"  data-f="all">All</button>
+    <button class="fb fc"  data-f="critical">Critical</button>
+    <button class="fb fg"  data-f="github">GitHub</button>
+    <button class="fb fn"  data-f="news">News</button>
+  </div>
+  <span class="rtxt" id="rtxt">⟳ —</span>
+  <a href="/" class="back">← Dashboard</a>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<div id="loading">
+  <div class="lorbs">
+    <div class="lo"></div><div class="lo"></div><div class="lo"></div>
+    <div class="lo"></div><div class="lo"></div>
+  </div>
+  <div class="ltxt">FETCHING WORLD SIGNALS</div>
+  <div class="lsub">collecting from HN · BBC · Guardian · Reuters · GitHub</div>
+</div>
+
+<div id="popup">
+  <div class="pi">
+    <div class="pbadge" id="pp-badge"></div>
+    <div class="ptitle"  id="pp-title"></div>
+    <div class="pmeta"   id="pp-meta"></div>
+    <div class="pact">
+      <a class="plink" id="pp-link" href="#" target="_blank" rel="noopener noreferrer">Read ↗</a>
+      <span class="pclose" id="pp-close">✕ close</span>
+    </div>
+  </div>
+</div>
+
+<div id="tip"></div>
+
 <script>
-// ─── Map init ──────────────────────────────────────────────────────────────
-const map = L.map('map', {
-  zoomControl: true,
-  attributionControl: true
-}).setView([25, 15], 2);
+// ═══════════════════════════════════════════════════════════════════
+//  Canvas setup
+// ═══════════════════════════════════════════════════════════════════
+const cvs = document.getElementById('c');
+const ctx = cvs.getContext('2d');
+const HDR = 52;
+let W = 0, H = 0;
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '© <a href="https://www.openstreetmap.org/copyright" style="color:#58a6ff">OpenStreetMap</a> contributors © <a href="https://carto.com" style="color:#58a6ff">CARTO</a>',
-  subdomains: 'abcd',
-  maxZoom: 18
-}).addTo(map);
+function resize() {
+  W = cvs.width  = window.innerWidth;
+  H = cvs.height = window.innerHeight;
+  for (const o of orbs) o.rebuildHome();
+}
+window.addEventListener('resize', resize);
+resize();
 
-// Legend
-const LegendControl = L.Control.extend({
-  onAdd() {
-    const d = L.DomUtil.create('div', 'legend');
-    d.innerHTML = `
-      <div class="legend-row"><div class="legend-dot" style="background:#ff6060"></div>Critical Event</div>
-      <div class="legend-row"><div class="legend-dot" style="background:#58a6ff"></div>Tech News</div>
-      <div class="legend-row"><div class="legend-dot" style="background:#f0c040"></div>GitHub Trending</div>
-    `;
-    return d;
+// ═══════════════════════════════════════════════════════════════════
+//  Geo → screen  (equirectangular, below header)
+// ═══════════════════════════════════════════════════════════════════
+function g2s(lat, lng) {
+  return [
+    ((lng + 180) / 360) * W,
+    HDR + ((90 - lat) / 180) * (H - HDR)
+  ];
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Orb — one animated bubble per world event
+// ═══════════════════════════════════════════════════════════════════
+class Orb {
+  constructor(item) {
+    this.item  = item;
+    this.alpha = 0;
+    this.targetAlpha = 1;
+    this.r = Math.max(24, Math.min(50, 24 + (item.score || 0) / 110));
+    // unique organic float phases
+    this.phA = Math.random() * Math.PI * 2;
+    this.phB = Math.random() * Math.PI * 2;
+    this.spA = 0.006 + Math.random() * 0.010;
+    this.spB = 0.008 + Math.random() * 0.012;
+    this.bounce = 0.9 + Math.random() * 0.5; // entrance pop
+    this.hov = false;
+    this._place();
   }
+
+  _place() {
+    const [hx, hy] = g2s(this.item.lat, this.item.lng);
+    this.hx = hx + (Math.random() - 0.5) * 72;
+    this.hy = hy + (Math.random() - 0.5) * 72;
+    this.x  = this.hx + (Math.random() - 0.5) * 140;
+    this.y  = this.hy + (Math.random() - 0.5) * 140;
+    this.vx = (Math.random() - 0.5) * 1.4;
+    this.vy = (Math.random() - 0.5) * 1.4;
+  }
+
+  rebuildHome() {
+    const [hx, hy] = g2s(this.item.lat, this.item.lng);
+    this.hx = hx + (Math.random() - 0.5) * 72;
+    this.hy = hy + (Math.random() - 0.5) * 72;
+  }
+
+  get col() {
+    if (this.item.kind === 'github')   return [240, 192,  64];
+    if (this.item.tier === 'critical') return [255,  78,  52];
+    return [52, 138, 255];
+  }
+
+  update(orbs) {
+    this.alpha += (this.targetAlpha - this.alpha) * 0.048;
+    if (this.alpha < 0.005) return;
+
+    this.phA += this.spA;
+    this.phB += this.spB;
+    this.bounce *= 0.935;
+
+    // organic float
+    const fx = Math.sin(this.phA) * 0.08 + Math.cos(this.phB * 0.7) * 0.036;
+    const fy = Math.cos(this.phA * 0.82) * 0.12 + Math.sin(this.phB) * 0.046;
+
+    // subtle random wander
+    this.vx += (Math.random() - 0.5) * 0.034;
+    this.vy += (Math.random() - 0.5) * 0.034;
+
+    // gentle home rubber-band
+    const dx = this.hx - this.x, dy = this.hy - this.y;
+    const hd = Math.sqrt(dx * dx + dy * dy) + 1;
+    const hf = Math.min(hd * 0.00017, 0.0028);
+    this.vx += dx * hf;
+    this.vy += dy * hf;
+
+    // repulsion
+    for (const o of orbs) {
+      if (o === this || o.alpha < 0.05) continue;
+      const ex = this.x - o.x, ey = this.y - o.y;
+      const ed = Math.sqrt(ex * ex + ey * ey) || 1;
+      const mn = this.r + o.r + 10;
+      if (ed < mn) {
+        const f = (mn - ed) / ed * 0.46;
+        this.vx += ex * f; this.vy += ey * f;
+      }
+    }
+
+    this.vx *= 0.956; this.vy *= 0.956;
+    const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    const cap = this.hov ? 3.4 : 2.1;
+    if (spd > cap) { this.vx *= cap / spd; this.vy *= cap / spd; }
+
+    this.x += this.vx + fx;
+    this.y += this.vy + fy;
+
+    const pad = this.r + 6;
+    if (this.x < pad)       { this.x = pad;     this.vx =  Math.abs(this.vx) * 0.5; }
+    if (this.x > W - pad)   { this.x = W - pad; this.vx = -Math.abs(this.vx) * 0.5; }
+    if (this.y < HDR + pad) { this.y = HDR + pad;  this.vy =  Math.abs(this.vy) * 0.5; }
+    if (this.y > H - pad)   { this.y = H - pad;    this.vy = -Math.abs(this.vy) * 0.5; }
+  }
+
+  draw() {
+    if (this.alpha < 0.005) return;
+    const [R, G, B] = this.col;
+    const scale = 1 + (this.hov ? 0.21 : 0) + this.bounce * 0.12;
+    const r     = this.r * scale;
+
+    ctx.save();
+    ctx.globalAlpha = Math.min(this.alpha, 1);
+
+    // outer glow
+    const glR = r * (this.hov ? 3.1 : 2.15);
+    const gl  = ctx.createRadialGradient(this.x, this.y, r * 0.08, this.x, this.y, glR);
+    gl.addColorStop(0, `rgba(${R},${G},${B},${this.hov ? 0.26 : 0.13})`);
+    gl.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.arc(this.x, this.y, glR, 0, Math.PI * 2);
+    ctx.fillStyle = gl; ctx.fill();
+
+    // bubble body
+    const bd = ctx.createRadialGradient(
+      this.x - r * 0.27, this.y - r * 0.31, r * 0.04,
+      this.x, this.y, r
+    );
+    bd.addColorStop(0,    `rgba(${R},${G},${B},0.90)`);
+    bd.addColorStop(0.44, `rgba(${Math.round(R*.52)},${Math.round(G*.52)},${Math.round(B*.52)},0.68)`);
+    bd.addColorStop(1,    `rgba(${Math.round(R*.11)},${Math.round(G*.11)},${Math.round(B*.11)},0.42)`);
+    ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = bd; ctx.fill();
+
+    // rim
+    ctx.strokeStyle = `rgba(${R},${G},${B},${this.hov ? 0.88 : 0.48})`;
+    ctx.lineWidth   = this.hov ? 2.2 : 1.4;
+    ctx.stroke();
+
+    // top-left sheen
+    const sh = ctx.createRadialGradient(
+      this.x - r * 0.3, this.y - r * 0.36, 0,
+      this.x - r * 0.3, this.y - r * 0.36, r * 0.65
+    );
+    sh.addColorStop(0, 'rgba(255,255,255,0.28)');
+    sh.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = sh; ctx.fill();
+
+    // text
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const src = this.item.source
+      .replace('GitHub Trending', 'GitHub').replace('BBC Technology','BBC')
+      .replace('BBC News Technology','BBC').replace('BBC World','BBC')
+      .replace('Guardian World','Guardian').replace('Google Geopolitics','GeoNews')
+      .replace('HN Front','HN').replace('Reuters Tech','Reuters')
+      .substring(0, 9);
+    const fs = Math.max(7, Math.floor(r * 0.26));
+    ctx.font = `bold ${fs}px 'Courier New'`;
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.fillText(src, this.x, this.y - r * 0.1);
+    ctx.font = `${Math.max(6, Math.floor(r * 0.2))}px 'Courier New'`;
+    ctx.fillStyle = 'rgba(255,255,255,0.56)';
+    ctx.fillText(this.item.country.substring(0, 7), this.x, this.y + r * 0.28);
+
+    ctx.restore();
+  }
+
+  hit(mx, my) {
+    const dx = mx - this.x, dy = my - this.y;
+    return Math.sqrt(dx * dx + dy * dy) <= this.r * 1.3;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Related-item detection
+// ═══════════════════════════════════════════════════════════════════
+const STOP  = new Set(['the','and','for','with','from','that','this','are','was','has',
+  'have','been','will','not','but','they','their','after','about','into','what','when',
+  'which','more','some','time','says','said','could','would','over','than','just']);
+const SKIP_C = new Set(['USA','UK','Global','Europe','EU','World']);
+const SKIP_S = new Set(['HN Front','Lobsters RSS','GitHub Trending',
+  'Google Geopolitics','HN Front Page']);
+
+function kw(s) {
+  return new Set(s.toLowerCase().split(/\W+/).filter(w => w.length > 3 && !STOP.has(w)));
+}
+function isRelated(a, b) {
+  if (!SKIP_C.has(a.country) && a.country === b.country) return true;
+  if (!SKIP_S.has(a.source)  && a.source  === b.source)  return true;
+  const wa = kw(a.title), wb = kw(b.title);
+  let n = 0;
+  for (const w of wa) if (wb.has(w) && ++n >= 2) return true;
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Background
+// ═══════════════════════════════════════════════════════════════════
+function drawBg() {
+  const bg = ctx.createRadialGradient(W*.5, H*.44, 0, W*.5, H*.5, Math.max(W,H)*.9);
+  bg.addColorStop(0,   '#090e1f');
+  bg.addColorStop(0.5, '#050810');
+  bg.addColorStop(1,   '#020407');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(11,24,50,0.52)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 6; i++) {
+    const y = HDR + (H-HDR)*i/6;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  for (let i = 0; i <= 9; i++) {
+    const x = W*i/9;
+    ctx.beginPath(); ctx.moveTo(x,HDR); ctx.lineTo(x,H); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(16,40,78,0.52)';
+  ctx.font = '10px Courier New'; ctx.textAlign = 'center';
+  [['NORTH AMERICA',W*.13,H*.34],['S. AMERICA',W*.19,H*.73],
+   ['EUROPE',W*.46,H*.26],['AFRICA',W*.46,H*.65],
+   ['MIDDLE EAST',W*.57,H*.5],['ASIA',W*.68,H*.3],['OCEANIA',W*.82,H*.76]]
+    .forEach(([l,x,y]) => ctx.fillText(l,x,y));
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Connection strings between related orbs
+// ═══════════════════════════════════════════════════════════════════
+let dashOff = 0;
+function drawConn(t) {
+  dashOff -= 0.55;
+  const cnt = new Array(orbs.length).fill(0);
+  for (let i = 0; i < orbs.length; i++) {
+    const a = orbs[i];
+    if (a.alpha < 0.35) continue;
+    for (let j = i+1; j < orbs.length; j++) {
+      const b = orbs[j];
+      if (b.alpha < 0.35 || cnt[i] >= 3 || cnt[j] >= 3) continue;
+      const dx = b.x-a.x, dy = b.y-a.y;
+      const d = Math.sqrt(dx*dx+dy*dy);
+      if (d < 10 || d > 310) continue;
+      if (!isRelated(a.item, b.item)) continue;
+      cnt[i]++; cnt[j]++;
+      const [R0,G0,B0]=a.col, [R1,G1,B1]=b.col;
+      const prox  = Math.max(0, 1 - d/310);
+      const pulse = 0.042 + 0.022*Math.sin(t*.0014 + i*.8 + j*.4);
+      const al    = prox * pulse * 1.6;
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2 + d*0.09;
+      const gr = ctx.createLinearGradient(a.x,a.y,b.x,b.y);
+      gr.addColorStop(0,   `rgba(${R0},${G0},${B0},${al})`);
+      gr.addColorStop(0.5, `rgba(200,220,255,${al*.65})`);
+      gr.addColorStop(1,   `rgba(${R1},${G1},${B1},${al})`);
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(a.x,a.y);
+      ctx.quadraticCurveTo(mx,my,b.x,b.y);
+      ctx.strokeStyle=gr; ctx.lineWidth=1.1;
+      ctx.setLineDash([5,9]); ctx.lineDashOffset=dashOff; ctx.stroke();
+      ctx.setLineDash([]); ctx.restore();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Orb list + filter
+// ═══════════════════════════════════════════════════════════════════
+let orbs = [];
+let activeFilter = 'all';
+
+function matchF(item) {
+  if (activeFilter==='critical') return item.tier==='critical';
+  if (activeFilter==='github')   return item.kind==='github';
+  if (activeFilter==='news')     return item.kind!=='github';
+  return true;
+}
+
+function applyFilter() {
+  for (const o of orbs) {
+    const show = matchF(o.item);
+    o.targetAlpha = show ? 1 : 0.055;
+    if (!show) {
+      o.vx += (Math.random()-.5)*2.5;
+      o.vy += (Math.random()-.5)*2.5;
+    }
+  }
+}
+
+function setData(data) {
+  const sorted = [...data].sort((a,b)=>(b.score||0)-(a.score||0)).slice(0,90);
+  orbs = sorted.map((item, idx) => {
+    const o = new Orb(item);
+    o.alpha = 0;
+    setTimeout(() => { o.bounce = Math.max(o.bounce, 1.1); }, idx * 26);
+    return o;
+  });
+  applyFilter();
+  updateStats(data);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Stats
+// ═══════════════════════════════════════════════════════════════════
+function updateStats(data) {
+  document.getElementById('s-tot').textContent  = data.length;
+  document.getElementById('s-crit').textContent = data.filter(d=>d.tier==='critical').length;
+  document.getElementById('s-coun').textContent = new Set(data.map(d=>d.country).filter(Boolean)).size;
+  document.getElementById('s-gh').textContent   = data.filter(d=>d.kind==='github').length;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Popup
+// ═══════════════════════════════════════════════════════════════════
+const popup = document.getElementById('popup');
+
+function showPopup(orb) {
+  const {item} = orb;
+  const [R,G,B] = orb.col;
+  const badge = document.getElementById('pp-badge');
+  badge.style.color = `rgb(${R},${G},${B})`;
+  badge.textContent = [
+    item.kind==='github'   ? '⭐ GitHub Trending':
+    item.tier==='critical' ? '🔴 Critical Signal' : '🔵 Tech Signal',
+    item.country
+  ].filter(Boolean).join(' · ');
+  document.getElementById('pp-title').textContent = item.title;
+  const ago = timeAgo(item.time);
+  document.getElementById('pp-meta').innerHTML =
+    [`Source: <b>${item.source}</b>`,
+     item.score!=null ? `★ ${item.score}` : null,
+     ago||null].filter(Boolean).join(' &nbsp;·&nbsp; ');
+  document.getElementById('pp-link').href = item.url;
+  popup.classList.add('show');
+}
+
+document.getElementById('pp-close').addEventListener('click',()=>popup.classList.remove('show'));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')popup.classList.remove('show');});
+
+// ═══════════════════════════════════════════════════════════════════
+//  Tooltip
+// ═══════════════════════════════════════════════════════════════════
+const tip = document.getElementById('tip');
+function showTip(orb, mx, my) {
+  const t = orb.item.title;
+  tip.textContent = t.length>65 ? t.substring(0,65)+'…' : t;
+  tip.classList.add('show');
+  tip.style.left = Math.min(mx+13, W-245)+'px';
+  tip.style.top  = Math.min(my-12, H-72 )+'px';
+}
+function hideTip(){tip.classList.remove('show');}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Mouse
+// ═══════════════════════════════════════════════════════════════════
+cvs.addEventListener('mousemove', e => {
+  let hovOrb = null;
+  for (const o of orbs) {
+    const was = o.hov;
+    o.hov = o.alpha>0.22 && o.hit(e.clientX, e.clientY);
+    if (o.hov && !was) o.bounce = Math.max(o.bounce, 0.42);
+    if (o.hov) hovOrb = o;
+  }
+  cvs.style.cursor = hovOrb ? 'pointer' : 'default';
+  hovOrb ? showTip(hovOrb, e.clientX, e.clientY) : hideTip();
 });
-new LegendControl({ position: 'bottomright' }).addTo(map);
+cvs.addEventListener('mouseleave', hideTip);
 
-// ─── State ─────────────────────────────────────────────────────────────────
-let allEvents = [];
-let markerLayer = L.layerGroup().addTo(map);
-let currentFilter = 'all';
+cvs.addEventListener('click', e => {
+  for (let i=orbs.length-1; i>=0; i--) {
+    const o = orbs[i];
+    if (o.alpha>0.18 && o.hit(e.clientX, e.clientY)) {
+      o.bounce = Math.max(o.bounce, 0.9);
+      showPopup(o); hideTip(); return;
+    }
+  }
+  popup.classList.remove('show');
+});
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-function colorFor(item) {
-  if (item.kind === 'github') return '#f0c040';
-  if (item.tier === 'critical') return '#ff6060';
-  return '#58a6ff';
-}
+// ═══════════════════════════════════════════════════════════════════
+//  Filter buttons
+// ═══════════════════════════════════════════════════════════════════
+document.querySelectorAll('.fb').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.fb').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    activeFilter = btn.dataset.f;
+    for (const o of orbs) {
+      if (matchF(o.item)) {
+        o.bounce = Math.max(o.bounce, 0.5 + Math.random()*.3);
+        o.vx += (Math.random()-.5)*1.6;
+        o.vy += (Math.random()-.5)*1.6;
+      }
+    }
+    applyFilter();
+  });
+});
 
-function radiusFor(item) {
-  const s = item.score || 0;
-  if (item.kind === 'github') return Math.max(5, Math.min(13, 5 + s / 120));
-  if (item.tier === 'critical') return Math.max(5, Math.min(12, 5 + s / 25));
-  return Math.max(4, Math.min(9, 4 + s / 35));
-}
-
+// ═══════════════════════════════════════════════════════════════════
+//  Helpers
+// ═══════════════════════════════════════════════════════════════════
 function timeAgo(ts) {
   if (!ts) return '';
-  const mins = Math.floor((Date.now() / 1000 - ts) / 60);
-  if (mins < 2) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const m = Math.floor((Date.now()/1000-ts)/60);
+  if (m<2) return 'just now';
+  if (m<60) return `${m}m ago`;
+  const h = Math.floor(m/60);
+  if (h<24) return `${h}h ago`;
+  return `${Math.floor(h/24)}d ago`;
 }
 
-function filterItems(items, f) {
-  if (f === 'critical') return items.filter(i => i.tier === 'critical');
-  if (f === 'github') return items.filter(i => i.kind === 'github');
-  if (f === 'news') return items.filter(i => i.kind !== 'github');
-  return items;
+// ═══════════════════════════════════════════════════════════════════
+//  Animation loop  (60 fps)
+// ═══════════════════════════════════════════════════════════════════
+function frame(t) {
+  requestAnimationFrame(frame);
+  ctx.clearRect(0, 0, W, H);
+  drawBg();
+  drawConn(t);
+  for (const o of orbs) o.update(orbs);
+  for (const o of orbs) o.draw();
 }
+requestAnimationFrame(frame);
 
-function safeText(s) {
-  return String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-// ─── Render map markers ────────────────────────────────────────────────────
-function renderMap(items) {
-  markerLayer.clearLayers();
-  items.forEach(item => {
-    if (!item.lat || !item.lng) return;
-    const color = colorFor(item);
-    const c = L.circleMarker([item.lat, item.lng], {
-      radius: radiusFor(item),
-      color: color,
-      fillColor: color,
-      fillOpacity: 0.6,
-      weight: 1.5,
-      opacity: 0.9
-    });
-
-    const ago = timeAgo(item.time);
-    const title = safeText(item.title);
-    const source = safeText(item.source);
-    const kindLabel = item.kind === 'github'
-      ? `<span style="color:#f0c040">⭐ GitHub</span>`
-      : item.tier === 'critical'
-        ? `<span style="color:#ff6060">🔴 Critical</span>`
-        : `<span style="color:#58a6ff">🔵 Tech</span>`;
-
-    c.bindPopup(`
-      <div style="font-family:'Courier New',monospace;max-width:285px;line-height:1.3">
-        <div style="font-size:0.62rem;margin-bottom:5px">
-          ${kindLabel}
-          <span style="color:#565f6a;margin-left:6px">${safeText(item.country)}</span>
-        </div>
-        <div style="font-size:0.83rem;font-weight:600;color:#e0e6f0;margin-bottom:5px">${title}</div>
-        <div style="font-size:0.67rem;color:#8b949e;margin-bottom:7px">
-          ${source}${item.score != null ? ' · ★' + item.score : ''}${ago ? ' · ' + ago : ''}
-        </div>
-        <a href="${safeText(item.url)}"
-           target="_blank" rel="noopener noreferrer"
-           style="color:#58a6ff;font-size:0.7rem;text-decoration:none">
-          Open ↗
-        </a>
-      </div>
-    `, { maxWidth: 310 });
-
-    c.addTo(markerLayer);
-  });
-}
-
-// ─── Render sidebar list ───────────────────────────────────────────────────
-function renderSidebar(items) {
-  const sorted = [...items]
-    .sort((a, b) => (b.score || 0) - (a.score || 0))
-    .slice(0, 100);
-
-  document.getElementById('sidebar-count').textContent = sorted.length;
-
-  if (sorted.length === 0) {
-    document.getElementById('event-list').innerHTML =
-      '<div class="empty-state">No events match this filter.</div>';
-    return;
-  }
-
-  document.getElementById('event-list').innerHTML = sorted.map(item => {
-    const evClass = item.kind === 'github' ? 'ev-github'
-      : item.tier === 'critical' ? 'ev-critical'
-      : 'ev-news';
-    const label = item.kind === 'github' ? '⭐ github'
-      : item.tier === 'critical' ? '🔴 critical'
-      : '🔵 tech';
-    const title = safeText(item.title);
-    const url = safeText(item.url);
-    const ago = timeAgo(item.time);
-    const country = safeText(item.country);
-    const source = safeText(item.source);
-
-    return `
-      <div class="event-item ${evClass}" onclick="window.open('${url}','_blank','noopener')">
-        <div class="event-badge">${label} · ${country}</div>
-        <div class="event-title">${title.length > 88 ? title.substring(0, 88) + '…' : title}</div>
-        <div class="event-meta">${source}${item.score != null ? ' · ★' + item.score : ''}${ago ? ' · ' + ago : ''}</div>
-      </div>`;
-  }).join('');
-}
-
-// ─── Update stats bar ──────────────────────────────────────────────────────
-function updateStats(items) {
-  document.getElementById('stat-total').textContent = items.length;
-  document.getElementById('stat-critical').textContent =
-    items.filter(i => i.tier === 'critical').length;
-  document.getElementById('stat-countries').textContent =
-    new Set(items.map(i => i.country).filter(Boolean)).size;
-  document.getElementById('stat-github').textContent =
-    items.filter(i => i.kind === 'github').length;
-}
-
-// ─── Apply filter ──────────────────────────────────────────────────────────
-function applyFilter() {
-  const visible = filterItems(allEvents, currentFilter);
-  renderMap(visible);
-  renderSidebar(visible);
-}
-
-// ─── Load from API ─────────────────────────────────────────────────────────
-async function loadEvents() {
+// ═══════════════════════════════════════════════════════════════════
+//  Data fetch
+// ═══════════════════════════════════════════════════════════════════
+async function load() {
   try {
     const r = await fetch('/api/worldevents');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
-    allEvents = Array.isArray(data) ? data : [];
-    updateStats(allEvents);
-    applyFilter();
-    const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    document.getElementById('refresh-info').textContent = `⟳ ${t}`;
-  } catch (e) {
-    console.error('worldevents fetch error:', e);
-    document.getElementById('event-list').innerHTML =
-      `<div class="empty-state">Failed to load events.<br>${e.message}</div>`;
+    if (Array.isArray(data) && data.length > 0) {
+      setData(data);
+      document.getElementById('loading').classList.add('gone');
+      const t = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      document.getElementById('rtxt').textContent = `⟳ ${t}`;
+    }
+  } catch(e) {
+    const el = document.querySelector('.ltxt');
+    if (el) el.textContent = `ERROR: ${e.message}`;
   }
 }
-
-// ─── Filter buttons ────────────────────────────────────────────────────────
-document.querySelectorAll('.filter-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentFilter = btn.dataset.filter;
-    applyFilter();
-  });
-});
-
-// ─── Boot ──────────────────────────────────────────────────────────────────
-loadEvents();
-setInterval(loadEvents, 60_000);
+load();
+setInterval(load, 60_000);
 </script>
 </body>
 </html>
+
