@@ -99,6 +99,11 @@ impl RssSource {
         results
     }
 
+    /// Fetch and parse a single feed by URL. Public for use in web layer.
+    pub async fn fetch_one(&self, name: &str, url: &str) -> Result<Vec<FeedItem>> {
+        self.fetch_feed(name, url).await
+    }
+
     async fn fetch_feed(&self, name: &str, url: &str) -> Result<Vec<FeedItem>> {
         let body = self
             .client

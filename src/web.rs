@@ -155,6 +155,7 @@ pub struct WebState {
     twitter_cache: Cache<Vec<VipItem>>,
     reddit_cache: Cache<Vec<VipItem>>,
     newsmap_cache: Cache<Vec<NewsMapItem>>,
+    worldevents_cache: Cache<Vec<WorldEventItem>>,
 }
 
 impl WebState {
@@ -186,6 +187,7 @@ impl WebState {
             twitter_cache: Arc::new(RwLock::new(None)),
             reddit_cache: Arc::new(RwLock::new(None)),
             newsmap_cache: Arc::new(RwLock::new(None)),
+            worldevents_cache: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -228,6 +230,22 @@ pub struct NewsMapItem {
     pub lng: f64,
     pub country: String,
     pub tier: String,
+    pub time: Option<i64>,
+    pub score: Option<u32>,
+}
+
+/// A single geolocated event for the world map — news or GitHub trending.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldEventItem {
+    pub title: String,
+    pub url: String,
+    pub source: String,
+    pub lat: f64,
+    pub lng: f64,
+    pub country: String,
+    pub tier: String,
+    /// "news" | "github"
+    pub kind: String,
     pub time: Option<i64>,
     pub score: Option<u32>,
 }
@@ -304,6 +322,10 @@ pub struct LeakItem {
 
 async fn serve_dashboard() -> Html<&'static str> {
     Html(include_str!("../assets/index.html"))
+}
+
+async fn serve_worldmap() -> Html<&'static str> {
+    Html(include_str!("../assets/worldmap.html"))
 }
 
 async fn api_alerts(State(s): State<Arc<WebState>>) -> Json<Vec<Alert>> {
@@ -546,55 +568,41 @@ async fn fetch_vip_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
         }
     }
 
-    // ── Reddit: public JSON, no auth needed ──────────────────────────────────
-    const SUBREDDITS: &[&str] = &[
-        "MachineLearning",
-        "artificial",
-        "LocalLLaMA",
-        "programming",
-        "technology",
-        "netsec",
-        "cybersecurity",
-        "worldnews",
-        "geopolitics",
-        "science",
-    ];
-    for sub in SUBREDDITS {
-        let url = format!("https://www.reddit.com/r/{sub}/hot.json?limit=25");
-        if let Ok(resp) = http
-            .get(&url)
-            .header("User-Agent", "repo-radar/1.0 leak-monitor")
-            .send()
-            .await
-        {
-            if let Ok(data) = resp.json::<serde_json::Value>().await {
-                if let Some(posts) = data["data"]["children"].as_array() {
-                    for post in posts.iter().take(15) {
-                        let d = &post["data"];
-                        let title = d["title"].as_str().unwrap_or("").to_string();
-                        let post_url = d["url"].as_str().unwrap_or("").to_string();
-                        let permalink = d["permalink"].as_str().unwrap_or("");
-                        let combined = format!("{title} {post_url}").to_lowercase();
-                        let vip_match = VIP_TERMS
-                            .iter()
-                            .find(|&&t| combined.contains(t))
-                            .map(|s| s.to_string());
-                        let is_ai = AI_KEYWORDS.iter().any(|&kw| combined.contains(kw));
-                        if vip_match.is_some() || is_ai {
-                            items.push(VipItem {
-                                title,
-                                url: if post_url.starts_with("http") {
-                                    post_url
-                                } else {
-                                    format!("https://reddit.com{permalink}")
-                                },
-                                source: format!("Reddit r/{sub}"),
-                                score: d["score"].as_u64().map(|v| v as u32),
-                                by: d["author"].as_str().map(Into::into),
-                                vip_match,
-                                time: d["created_utc"].as_f64().map(|t| t as i64),
-                            });
-                        }
+    // Reddit public JSON API blocked (403). Replaced with HN Algolia search.
+    // ── HN Algolia: targeted VIP/AI keyword search ────────────────────────────
+    if let Ok(resp) = http
+        .get("https://hn.algolia.com/api/v1/search")
+        .query(&[
+            ("query", "AI claude anthropic openai github security leak breach"),
+            ("tags", "story"),
+            ("hitsPerPage", "40"),
+        ])
+        .send()
+        .await
+    {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            if let Some(hits) = data["hits"].as_array() {
+                for hit in hits {
+                    let title = hit["title"].as_str().unwrap_or("").to_string();
+                    let story_url = hit["url"].as_str().unwrap_or("").to_string();
+                    let hn_id = hit["objectID"].as_str().unwrap_or("0");
+                    let fallback = format!("https://news.ycombinator.com/item?id={hn_id}");
+                    let combined = format!("{title} {story_url}").to_lowercase();
+                    let vip_match = VIP_TERMS
+                        .iter()
+                        .find(|&&t| combined.contains(t))
+                        .map(|s| s.to_string());
+                    let is_ai = AI_KEYWORDS.iter().any(|&kw| combined.contains(kw));
+                    if vip_match.is_some() || is_ai {
+                        items.push(VipItem {
+                            title,
+                            url: if story_url.is_empty() { fallback } else { story_url },
+                            source: "HN Algolia".into(),
+                            score: hit["points"].as_u64().map(|v| v as u32),
+                            by: hit["author"].as_str().map(Into::into),
+                            vip_match,
+                            time: hit["created_at_i"].as_i64(),
+                        });
                     }
                 }
             }
@@ -652,59 +660,70 @@ async fn fetch_vip_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
 async fn fetch_social_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
     let mut items: Vec<VipItem> = Vec::new();
 
-    // Reddit — broad subreddit list covering tech, world news, security, science
-    const SOCIAL_SUBS: &[&str] = &[
-        "MachineLearning",
-        "artificial",
-        "LocalLLaMA",
-        "programming",
-        "technology",
-        "compsci",
-        "netsec",
-        "cybersecurity",
-        "worldnews",
-        "news",
-        "geopolitics",
-        "science",
-        "dataisbeautiful",
-        "sysadmin",
-        "devops",
-    ];
-    for sub in SOCIAL_SUBS {
-        let url = format!("https://www.reddit.com/r/{sub}/hot.json?limit=10");
+    // Reddit public JSON API blocked (403). Replaced with HN Algolia + Lobsters.
+    // ── HN Algolia: general recent stories ───────────────────────────────────
+    for query in &["programming security AI", "devops tech news", "open source release"] {
         if let Ok(resp) = http
-            .get(&url)
-            .header("User-Agent", "repo-radar/1.0 social-feed")
+            .get("https://hn.algolia.com/api/v1/search_by_date")
+            .query(&[
+                ("query", *query),
+                ("tags", "story"),
+                ("hitsPerPage", "20"),
+            ])
             .send()
             .await
         {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
-                if let Some(posts) = data["data"]["children"].as_array() {
-                    for post in posts.iter().take(8) {
-                        let d = &post["data"];
-                        let title = d["title"].as_str().unwrap_or("").to_string();
-                        let post_url = d["url"].as_str().unwrap_or("").to_string();
-                        let permalink = d["permalink"].as_str().unwrap_or("");
-                        let combined = format!("{title} {post_url}").to_lowercase();
+                if let Some(hits) = data["hits"].as_array() {
+                    for hit in hits {
+                        let title = hit["title"].as_str().unwrap_or("").to_string();
+                        if title.is_empty() { continue; }
+                        let story_url = hit["url"].as_str().unwrap_or("").to_string();
+                        let hn_id = hit["objectID"].as_str().unwrap_or("0");
+                        let fallback = format!("https://news.ycombinator.com/item?id={hn_id}");
+                        let combined = format!("{title} {story_url}").to_lowercase();
                         let vip_match = VIP_TERMS
                             .iter()
                             .find(|&&t| combined.contains(t))
                             .map(|s| s.to_string());
                         items.push(VipItem {
                             title,
-                            url: if post_url.starts_with("http") {
-                                post_url
-                            } else {
-                                format!("https://reddit.com{permalink}")
-                            },
-                            source: format!("Reddit r/{sub}"),
-                            score: d["score"].as_u64().map(|v| v as u32),
-                            by: d["author"].as_str().map(Into::into),
+                            url: if story_url.is_empty() { fallback } else { story_url },
+                            source: "HN Algolia".into(),
+                            score: hit["points"].as_u64().map(|v| v as u32),
+                            by: hit["author"].as_str().map(Into::into),
                             vip_match,
-                            time: d["created_utc"].as_f64().map(|t| t as i64),
+                            time: hit["created_at_i"].as_i64(),
                         });
                     }
                 }
+            }
+        }
+    }
+    // ── Lobsters: open tech community (free JSON, no auth) ───────────────────
+    if let Ok(resp) = http.get("https://lobste.rs/hottest.json").send().await {
+        if let Ok(stories) = resp.json::<Vec<serde_json::Value>>().await {
+            for s in stories.iter().take(25) {
+                let title = s["title"].as_str().unwrap_or("").to_string();
+                let story_url = s["url"].as_str().unwrap_or("").to_string();
+                if title.is_empty() || story_url.is_empty() { continue; }
+                let combined = format!("{title} {story_url}").to_lowercase();
+                let vip_match = VIP_TERMS
+                    .iter()
+                    .find(|&&t| combined.contains(t))
+                    .map(|s| s.to_string());
+                items.push(VipItem {
+                    title,
+                    url: story_url,
+                    source: "Lobsters".into(),
+                    score: s["score"].as_u64().map(|v| v as u32),
+                    by: s["submitter_user"].as_str().map(Into::into),
+                    vip_match,
+                    time: s["created_at"]
+                        .as_str()
+                        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                        .map(|dt| dt.timestamp()),
+                });
             }
         }
     }
@@ -964,72 +983,84 @@ async fn fetch_twitter_viral() -> Result<Vec<VipItem>> {
 /// Reddit viral feed — fetches hot + rising posts from key tech subreddits,
 /// deduplicates by URL, and sorts by upvote score descending so the most
 /// engaging posts appear first.
+/// Replaced Reddit (403-blocked) with HN Algolia + Lobsters for viral/trending posts.
 async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
-    const VIRAL_SUBS: &[&str] = &[
-        "MachineLearning",
-        "LocalLLaMA",
-        "artificial",
-        "programming",
-        "technology",
-        "netsec",
-        "worldnews",
-        "science",
-        "singularity",
-        "OpenAI",
-        "ChatGPT",
-        "datascience",
-    ];
     let mut items: Vec<VipItem> = Vec::new();
-    for sub in VIRAL_SUBS {
-        for sort in &["hot", "rising"] {
-            let url = format!("https://www.reddit.com/r/{sub}/{sort}.json?limit=20");
-            if let Ok(resp) = http
-                .get(&url)
-                .header("User-Agent", "repo-radar/1.0 reddit-viral")
-                .timeout(Duration::from_secs(8))
-                .send()
-                .await
-            {
-                if resp.status().is_success() {
-                    if let Ok(data) = resp.json::<serde_json::Value>().await {
-                        if let Some(posts) = data["data"]["children"].as_array() {
-                            for post in posts {
-                                let d = &post["data"];
-                                let score = d["score"].as_u64().unwrap_or(0);
-                                if score < 100 {
-                                    continue;
-                                }
-                                let title = d["title"].as_str().unwrap_or("").to_string();
-                                if title.is_empty() {
-                                    continue;
-                                }
-                                let post_url = d["url"].as_str().unwrap_or("").to_string();
-                                let permalink = d["permalink"].as_str().unwrap_or("");
-                                let comments = d["num_comments"].as_u64().unwrap_or(0);
-                                items.push(VipItem {
-                                    title,
-                                    url: if post_url.starts_with("http") {
-                                        post_url
-                                    } else {
-                                        format!("https://reddit.com{permalink}")
-                                    },
-                                    source: format!("r/{sub}"),
-                                    score: Some(score as u32),
-                                    by: d["author"].as_str().map(Into::into),
-                                    vip_match: Some(format!("💬 {comments}")),
-                                    time: d["created_utc"].as_f64().map(|t| t as i64),
-                                });
-                            }
-                        }
+
+    // ── HN Algolia: top-voted recent stories ─────────────────────────────────
+    for query in &[
+        "Show HN",
+        "Ask HN",
+        "vulnerability discovered breach",
+        "launches raises funding",
+        "open source release",
+    ] {
+        if let Ok(resp) = http
+            .get("https://hn.algolia.com/api/v1/search")
+            .query(&[
+                ("query", *query),
+                ("tags", "story"),
+                ("hitsPerPage", "20"),
+            ])
+            .send()
+            .await
+        {
+            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                if let Some(hits) = data["hits"].as_array() {
+                    for hit in hits {
+                        let title = hit["title"].as_str().unwrap_or("").to_string();
+                        if title.is_empty() { continue; }
+                        let score = hit["points"].as_u64().unwrap_or(0);
+                        if score < 30 { continue; }
+                        let story_url = hit["url"].as_str().unwrap_or("").to_string();
+                        let hn_id = hit["objectID"].as_str().unwrap_or("0");
+                        let comments = hit["num_comments"].as_u64().unwrap_or(0);
+                        items.push(VipItem {
+                            title,
+                            url: if story_url.is_empty() {
+                                format!("https://news.ycombinator.com/item?id={hn_id}")
+                            } else {
+                                story_url
+                            },
+                            source: "HN Viral".into(),
+                            score: Some(score as u32),
+                            by: hit["author"].as_str().map(Into::into),
+                            vip_match: Some(format!("💬 {comments}")),
+                            time: hit["created_at_i"].as_i64(),
+                        });
                     }
                 }
             }
         }
     }
-    // Deduplicate by URL (a post may appear in both hot + rising)
+
+    // ── Lobsters: hottest open-tech community posts ───────────────────────────
+    if let Ok(resp) = http.get("https://lobste.rs/hottest.json").send().await {
+        if let Ok(stories) = resp.json::<Vec<serde_json::Value>>().await {
+            for s in stories.iter().take(40) {
+                let title = s["title"].as_str().unwrap_or("").to_string();
+                let story_url = s["url"].as_str().unwrap_or("").to_string();
+                let score = s["score"].as_u64().unwrap_or(0);
+                if title.is_empty() || score < 5 { continue; }
+                let comments = s["comment_count"].as_u64().unwrap_or(0);
+                items.push(VipItem {
+                    title,
+                    url: story_url,
+                    source: "Lobsters".into(),
+                    score: Some(score as u32),
+                    by: s["submitter_user"].as_str().map(Into::into),
+                    vip_match: Some(format!("💬 {comments}")),
+                    time: s["created_at"]
+                        .as_str()
+                        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                        .map(|dt| dt.timestamp()),
+                });
+            }
+        }
+    }
+
     let mut seen = std::collections::HashSet::new();
     items.retain(|it| seen.insert(it.url.clone()));
-    // Sort by upvote score descending
     items.sort_by_key(|x| std::cmp::Reverse(x.score));
     items.truncate(80);
     Ok(items)
@@ -1398,55 +1429,33 @@ async fn fetch_world_feed(http: &reqwest::Client) -> Result<Vec<WorldFeedItem>> 
         }
     }
 
-    // ── Reddit — broad subreddits, no filter ─────────────────────────────────
-    const WORLD_SUBS: &[&str] = &[
-        "worldnews",
-        "news",
-        "technology",
-        "programming",
-        "MachineLearning",
-        "artificial",
-        "LocalLLaMA",
-        "netsec",
-        "cybersecurity",
-        "geopolitics",
-        "science",
-        "economics",
-        "sysadmin",
+    // Reddit public JSON API blocked (403). Replaced with RSS world news feeds.
+    // ── RSS World News: BBC, Guardian, Reuters ───────────────────────────────
+    let world_rss: &[(&str, &str)] = &[
+        ("BBC World",       "https://feeds.bbci.co.uk/news/world/rss.xml"),
+        ("BBC Technology",  "https://feeds.bbci.co.uk/news/technology/rss.xml"),
+        ("Guardian World",  "https://www.theguardian.com/world/rss"),
+        ("Reuters Tech",    "https://feeds.reuters.com/reuters/technologyNews"),
+        ("HN Front",        "https://hnrss.org/frontpage?count=40"),
+        ("Lobsters RSS",    "https://lobste.rs/rss"),
+        ("Google Geopolitics", "https://news.google.com/rss/search?q=(sanctions+OR+conflict+OR+war+OR+election+OR+treaty)+(government+OR+military+OR+tech)&hl=en-US&gl=US&ceid=US:en"),
     ];
-    for sub in WORLD_SUBS {
-        let url = format!("https://www.reddit.com/r/{sub}/hot.json?limit=15");
-        if let Ok(resp) = http
-            .get(&url)
-            .header("User-Agent", "repo-radar/1.0 world-feed")
-            .send()
-            .await
-        {
-            if let Ok(data) = resp.json::<serde_json::Value>().await {
-                if let Some(posts) = data["data"]["children"].as_array() {
-                    for post in posts.iter().take(12) {
-                        let d = &post["data"];
-                        let title = d["title"].as_str().unwrap_or("").to_string();
-                        let post_url = d["url"].as_str().unwrap_or("").to_string();
-                        let permalink = d["permalink"].as_str().unwrap_or("");
-                        let combined = format!("{title} {post_url}");
-                        let (tier, tags) = classify_tier(&combined);
-                        items.push(WorldFeedItem {
-                            title,
-                            url: if post_url.starts_with("http") {
-                                post_url
-                            } else {
-                                format!("https://reddit.com{permalink}")
-                            },
-                            source: format!("Reddit r/{sub}"),
-                            score: d["score"].as_u64().map(|v| v as u32),
-                            by: d["author"].as_str().map(Into::into),
-                            time: d["created_utc"].as_f64().map(|t| t as i64),
-                            tier: tier.into(),
-                            tags,
-                        });
-                    }
-                }
+    let rss_src = crate::sources::rss::RssSource::new();
+    for (feed_name, feed_url) in world_rss {
+        if let Ok(feed_items) = rss_src.fetch_one(feed_name, feed_url).await {
+            for fi in feed_items {
+                let combined = format!("{} {}", fi.title, fi.link);
+                let (tier, tags) = classify_tier(&combined);
+                items.push(WorldFeedItem {
+                    title: fi.title,
+                    url: fi.link,
+                    source: fi.feed_name,
+                    score: None,
+                    by: None,
+                    time: fi.published.map(|dt| dt.timestamp()),
+                    tier: tier.into(),
+                    tags,
+                });
             }
         }
     }
@@ -1595,6 +1604,78 @@ async fn api_newsmap(State(s): State<Arc<WebState>>) -> Json<Vec<NewsMapItem>> {
         .collect();
     *s.newsmap_cache.write().await = Some((Instant::now(), items.clone()));
     Json(items)
+}
+
+// ─── /api/worldevents ───────────────────────────────────────────────────────
+
+async fn api_worldevents(State(s): State<Arc<WebState>>) -> Json<Vec<WorldEventItem>> {
+    const TTL: Duration = Duration::from_secs(120);
+    {
+        let c = s.worldevents_cache.read().await;
+        if let Some((at, ref data)) = *c {
+            if at.elapsed() < TTL {
+                return Json(data.clone());
+            }
+        }
+    }
+
+    let mut events: Vec<WorldEventItem> = Vec::new();
+
+    // ── News items from world feed ──────────────────────────────────────────
+    let feed = fetch_world_feed(&s.http).await.unwrap_or_default();
+    for item in feed {
+        if let Some((lat, lng, country)) = geo_tag(&item.title, &item.url) {
+            events.push(WorldEventItem {
+                title: item.title,
+                url: item.url,
+                source: item.source,
+                lat,
+                lng,
+                country: country.to_string(),
+                tier: item.tier,
+                kind: "news".to_string(),
+                time: item.time,
+                score: item.score,
+            });
+        }
+    }
+
+    // ── GitHub trending repos ───────────────────────────────────────────────
+    if let Ok(gh_data) = fetch_github_trending(&s.http).await {
+        if let Some(repos) = gh_data.as_array() {
+            for repo in repos {
+                let name = repo["name"].as_str().unwrap_or("").to_string();
+                let full_name = repo["full_name"].as_str().unwrap_or("").to_string();
+                let desc = repo["description"].as_str().unwrap_or("").to_string();
+                let url = repo["html_url"].as_str().unwrap_or("").to_string();
+                let stars = repo["stargazers_count"].as_u64().map(|v| v as u32);
+                // Try geo-tagging from repo description + full_name
+                let geo_title = format!("{full_name} {desc}");
+                let (lat, lng, country) = geo_tag(&geo_title, &url)
+                    .unwrap_or((37.09, -95.71, "USA"));
+                let title = if desc.is_empty() {
+                    full_name.clone()
+                } else {
+                    format!("{name}: {desc}")
+                };
+                events.push(WorldEventItem {
+                    title,
+                    url,
+                    source: "GitHub Trending".to_string(),
+                    lat,
+                    lng,
+                    country: country.to_string(),
+                    tier: "normal".to_string(),
+                    kind: "github".to_string(),
+                    time: None,
+                    score: stars,
+                });
+            }
+        }
+    }
+
+    *s.worldevents_cache.write().await = Some((Instant::now(), events.clone()));
+    Json(events)
 }
 
 // ─── /api/fusion?topic= ───────────────────────────────────────────────────────
@@ -1865,6 +1946,8 @@ pub async fn start_server(
         .route("/api/newsmap", get(api_newsmap))
         .route("/api/fusion", get(api_fusion))
         .route("/api/hunt/:username", get(api_hunt))
+        .route("/worldmap",            get(serve_worldmap))
+        .route("/api/worldevents",    get(api_worldevents))
         .with_state(state)
         .layer(CorsLayer::permissive());
 
