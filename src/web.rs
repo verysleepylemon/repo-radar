@@ -953,17 +953,13 @@ async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
                                 if score < 100 {
                                     continue;
                                 }
-                                let title =
-                                    d["title"].as_str().unwrap_or("").to_string();
+                                let title = d["title"].as_str().unwrap_or("").to_string();
                                 if title.is_empty() {
                                     continue;
                                 }
-                                let post_url =
-                                    d["url"].as_str().unwrap_or("").to_string();
-                                let permalink =
-                                    d["permalink"].as_str().unwrap_or("");
-                                let comments =
-                                    d["num_comments"].as_u64().unwrap_or(0);
+                                let post_url = d["url"].as_str().unwrap_or("").to_string();
+                                let permalink = d["permalink"].as_str().unwrap_or("");
+                                let comments = d["num_comments"].as_u64().unwrap_or(0);
                                 items.push(VipItem {
                                     title,
                                     url: if post_url.starts_with("http") {
@@ -975,9 +971,7 @@ async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
                                     score: Some(score as u32),
                                     by: d["author"].as_str().map(Into::into),
                                     vip_match: Some(format!("💬 {comments}")),
-                                    time: d["created_utc"]
-                                        .as_f64()
-                                        .map(|t| t as i64),
+                                    time: d["created_utc"].as_f64().map(|t| t as i64),
                                 });
                             }
                         }

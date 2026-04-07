@@ -246,6 +246,94 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
   transition: opacity .2s, transform .2s; pointer-events: none;
 }
 #toast.show { opacity: 1; transform: translateY(0); }
+
+/* ── Topic Pulse – Bar Chart Race ────────────────────── */
+#tab-pulse { padding: 0; overflow: hidden; height: calc(100vh - 52px); display: none; flex-direction: column; position: sticky; top: 0; }
+#tab-pulse.active { display: flex; }
+.pulse-ctrl {
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+  border-bottom: 1px solid var(--gh-border-m);
+  position: sticky; top: 0; z-index: 10; background: var(--gh-bg); flex-shrink: 0;
+}
+.pulse-ctrl h2 { font-size: 13px; font-weight: 600; }
+.pulse-clock {
+  margin-left: auto; font-size: 11px; font-weight: 600; color: var(--yellow);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.pulse-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--gh-canvas2); border: 1px solid var(--gh-border);
+  color: var(--fg); padding: 3px 10px; border-radius: 5px; font-size: 11px;
+  transition: background .1s;
+}
+.pulse-btn:hover { background: rgba(255,255,255,.07); }
+.pulse-btn.active-btn { background: rgba(63,185,80,.12); border-color: rgba(63,185,80,.3); color: var(--green); }
+.pulse-speed-wrap { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--fg-s); }
+.pulse-speed-wrap select {
+  background: var(--gh-canvas2); border: 1px solid var(--gh-border); color: var(--fg);
+  border-radius: 4px; font-size: 11px; padding: 2px 5px;
+}
+#pulse-canvas {
+  flex: 1; overflow-y: auto; padding: 12px 16px 24px;
+  position: relative;
+}
+#pulse-canvas::-webkit-scrollbar { width: 6px; }
+#pulse-canvas::-webkit-scrollbar-thumb { background: var(--gh-border); border-radius: 3px; }
+.race-stage { position: relative; }
+.race-row {
+  display: flex; align-items: center; gap: 0;
+  height: 34px; margin-bottom: 6px;
+  transition: transform 0.55s cubic-bezier(.25,.8,.25,1);
+  position: absolute; left: 0; right: 0;
+}
+.race-rank {
+  width: 28px; flex-shrink: 0; text-align: right;
+  font-size: 11px; font-weight: 700; color: var(--fg-s);
+  padding-right: 6px; line-height: 34px;
+}
+.race-rank.top3 { color: var(--yellow); font-size: 13px; }
+.race-emoji {
+  width: 22px; flex-shrink: 0; text-align: center;
+  font-size: 14px; line-height: 34px;
+}
+.race-name {
+  width: 122px; flex-shrink: 0;
+  font-size: 11px; font-weight: 500; color: var(--fg-m);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 34px; padding-right: 8px;
+}
+.race-bar-track {
+  flex: 1; height: 20px; background: rgba(255,255,255,.04);
+  border-radius: 3px; overflow: hidden; position: relative;
+  border: 1px solid rgba(255,255,255,.05);
+}
+.race-bar-fill {
+  height: 100%; border-radius: 3px;
+  transition: width 0.55s cubic-bezier(.25,.8,.25,1), opacity 0.55s ease;
+  position: relative;
+}
+.race-bar-fill::after {
+  content: '';
+  position: absolute; right: 0; top: 0; bottom: 0; width: 40%;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,.18));
+  border-radius: 0 3px 3px 0;
+}
+.race-score {
+  width: 44px; flex-shrink: 0; text-align: right;
+  font-size: 10px; font-weight: 700; color: var(--fg-m);
+  font-variant-numeric: tabular-nums; padding-left: 6px; line-height: 34px;
+}
+.race-decay-badge {
+  width: 26px; flex-shrink: 0; text-align: center;
+  font-size: 9px; color: var(--fg-s); line-height: 34px;
+}
+.pulse-subtitle {
+  font-size: 11px; color: var(--fg-s); padding: 8px 0 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.pulse-legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 0 0 10px; }
+.pulse-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--fg-s); }
+.pulse-legend-dot { width: 10px; height: 10px; border-radius: 2px; }
 @media (max-width: 860px) {
   .layout { grid-template-columns: 1fr; }
   .detail-pane { display: none; }
@@ -270,6 +358,7 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <button class="tab-btn" data-tab="ghost" onclick="switchTab('ghost')">👻 Ghost Repos <span class="tab-cnt" id="cnt-ghost">…</span></button>
       <button class="tab-btn" data-tab="twitter" onclick="switchTab('twitter')">🐦 Twitter <span class="tab-cnt" id="cnt-twitter">…</span></button>
       <button class="tab-btn" data-tab="reddit" onclick="switchTab('reddit')">🔴 Reddit <span class="tab-cnt" id="cnt-reddit">…</span></button>
+      <button class="tab-btn" data-tab="pulse" onclick="switchTab('pulse')">📊 Topic Pulse <span class="tab-cnt" id="cnt-pulse" style="background:rgba(88,166,255,.12);color:var(--blue)">44</span></button>
     </div>
     <div class="gh-nav-r">
       <span class="gh-time">↺ <strong><span id="cd">60</span>s</strong> &nbsp;·&nbsp; <span id="ts">loading…</span></span>
@@ -320,6 +409,29 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
     <div id="tab-reddit" class="tab-panel">
       <div class="list-hdr"><span>🔴</span><h2>Reddit Viral</h2><span class="list-cnt-b" id="reddit-cnt-h">…</span><span class="list-src">Hot &amp; Rising · sorted by upvotes</span></div>
       <div id="reddit-list"><div class="gh-loading"><div class="gh-spin"></div>Loading Reddit…</div></div>
+    </div>
+    <!-- Topic Pulse -->
+    <div id="tab-pulse" class="tab-panel">
+      <div class="pulse-ctrl">
+        <span>📊</span><h2>Topic Pulse</h2>
+        <span class="list-cnt-b">44 categories</span>
+        <button class="pulse-btn active-btn" id="pulse-play-btn" onclick="togglePulse()">⏸ Pause</button>
+        <button class="pulse-btn" onclick="resetPulse()">↺ Reset</button>
+        <div class="pulse-speed-wrap">Speed <select id="pulse-speed" onchange="setPulseSpeed(this.value)"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+        <span class="pulse-clock" id="pulse-clock">Month 0, Week 0</span>
+      </div>
+      <div id="pulse-canvas">
+        <div class="pulse-subtitle">🔗 Based on <strong style="color:var(--fg)">public-apis/public-apis</strong> — API count per category as base score, with time-decay &amp; trend spikes</div>
+        <div class="pulse-legend">
+          <div class="pulse-legend-item"><div class="pulse-legend-dot" style="background:#58a6ff"></div>Tech &amp; Dev</div>
+          <div class="pulse-legend-item"><div class="pulse-legend-dot" style="background:#3fb950"></div>Finance &amp; Crypto</div>
+          <div class="pulse-legend-item"><div class="pulse-legend-dot" style="background:#a371f7"></div>Media &amp; Social</div>
+          <div class="pulse-legend-item"><div class="pulse-legend-dot" style="background:#e3b341"></div>Data &amp; Science</div>
+          <div class="pulse-legend-item"><div class="pulse-legend-dot" style="background:#f85149"></div>Security</div>
+          <div class="pulse-legend-item"><div class="pulse-legend-dot" style="background:#d29922"></div>Other</div>
+        </div>
+        <div class="race-stage" id="race-stage"></div>
+      </div>
     </div>
     <!-- Secrets -->
     <div id="tab-secrets" class="tab-panel">
@@ -663,8 +775,229 @@ async function loadReddit() {
   } catch(e) { el.innerHTML = `<div class="gh-empty"><div class="gh-empty-ico">⚠️</div><p>Error: ${E(e.message)}</p></div>`; }
 }
 
+/* ── Topic Pulse (Bar Chart Race) ────────────────────────────────── */
+const PULSE_CATS = [
+  { name:'Development',      count:97,  emoji:'⚙️',  color:'#58a6ff', group:'tech'     },
+  { name:'Games & Comics',   count:80,  emoji:'🎮',  color:'#a371f7', group:'media'    },
+  { name:'Geocoding',        count:75,  emoji:'🗺️',  color:'#e3b341', group:'data'     },
+  { name:'Transportation',   count:73,  emoji:'🚂',  color:'#3fb950', group:'data'     },
+  { name:'Government',       count:71,  emoji:'🏛️',  color:'#e3b341', group:'data'     },
+  { name:'Cryptocurrency',   count:65,  emoji:'🪙',  color:'#3fb950', group:'finance'  },
+  { name:'Finance',          count:57,  emoji:'💰',  color:'#3fb950', group:'finance'  },
+  { name:'Security',         count:37,  emoji:'🛡️',  color:'#f85149', group:'security' },
+  { name:'Open Data',        count:38,  emoji:'📊',  color:'#e3b341', group:'data'     },
+  { name:'Video',            count:44,  emoji:'🎬',  color:'#a371f7', group:'media'    },
+  { name:'Social',           count:42,  emoji:'📱',  color:'#a371f7', group:'media'    },
+  { name:'Science & Math',   count:33,  emoji:'🔬',  color:'#e3b341', group:'data'     },
+  { name:'Music',            count:35,  emoji:'🎵',  color:'#a371f7', group:'media'    },
+  { name:'Sports & Fitness', count:35,  emoji:'⚽',  color:'#a371f7', group:'media'    },
+  { name:'Health',           count:34,  emoji:'🏥',  color:'#e3b341', group:'data'     },
+  { name:'Photography',      count:29,  emoji:'📷',  color:'#a371f7', group:'media'    },
+  { name:'Documents',        count:29,  emoji:'📄',  color:'#58a6ff', group:'tech'     },
+  { name:'Weather',          count:31,  emoji:'🌤️',  color:'#e3b341', group:'data'     },
+  { name:'Animals',          count:27,  emoji:'🐾',  color:'#d29922', group:'other'    },
+  { name:'Test Data',        count:25,  emoji:'🧪',  color:'#58a6ff', group:'tech'     },
+  { name:'Books',            count:26,  emoji:'📚',  color:'#e3b341', group:'data'     },
+  { name:'Business',         count:23,  emoji:'💼',  color:'#3fb950', group:'finance'  },
+  { name:'Machine Learning', count:22,  emoji:'🤖',  color:'#58a6ff', group:'tech'     },
+  { name:'Personality',      count:23,  emoji:'🧠',  color:'#a371f7', group:'media'    },
+  { name:'Art & Design',     count:20,  emoji:'🎨',  color:'#a371f7', group:'media'    },
+  { name:'Cloud Storage',    count:19,  emoji:'☁️',  color:'#58a6ff', group:'tech'     },
+  { name:'Anime',            count:19,  emoji:'⛩️',  color:'#a371f7', group:'media'    },
+  { name:'URL Shorteners',   count:19,  emoji:'🔗',  color:'#58a6ff', group:'tech'     },
+  { name:'News',             count:19,  emoji:'📰',  color:'#d29922', group:'other'    },
+  { name:'Food & Drink',     count:24,  emoji:'🍕',  color:'#d29922', group:'other'    },
+  { name:'Email',            count:17,  emoji:'📧',  color:'#58a6ff', group:'tech'     },
+  { name:'Jobs',             count:17,  emoji:'👔',  color:'#3fb950', group:'finance'  },
+  { name:'Currency Exchange',count:17,  emoji:'💱',  color:'#3fb950', group:'finance'  },
+  { name:'Anti-Malware',     count:15,  emoji:'🦠',  color:'#f85149', group:'security' },
+  { name:'Text Analysis',    count:15,  emoji:'📝',  color:'#58a6ff', group:'tech'     },
+  { name:'Calendar',         count:16,  emoji:'📅',  color:'#d29922', group:'other'    },
+  { name:'Shopping',         count:14,  emoji:'🛒',  color:'#3fb950', group:'finance'  },
+  { name:'Blockchain',       count:11,  emoji:'⛓️',  color:'#3fb950', group:'finance'  },
+  { name:'Tracking',         count:9,   emoji:'📦',  color:'#d29922', group:'other'    },
+  { name:'Vehicle',          count:6,   emoji:'🚗',  color:'#d29922', group:'other'    },
+  { name:'Programming',      count:5,   emoji:'💻',  color:'#58a6ff', group:'tech'     },
+  { name:'Phone',            count:5,   emoji:'📞',  color:'#d29922', group:'other'    },
+  { name:'Patent',           count:4,   emoji:'📜',  color:'#d29922', group:'other'    },
+  { name:'Events',           count:3,   emoji:'🎪',  color:'#d29922', group:'other'    },
+];
+
+const VISIBLE_ROWS = 15;
+const ROW_H = 40; // px per row (height + margin)
+const DECAY_PER_TICK = 0.991;
+const SPIKE_CHANCE  = 0.18; // per category per tick
+const SPIKE_MAX     = 8;
+const WEEKS_PER_TICK = 1;
+
+let pulseScores = {};
+let pulseTick   = 0;
+let pulsePlaying = true;
+let pulseSpeedMult = 1;
+let pulseTimer  = null;
+let _pulseRafPending = false;
+
+function initPulseScores() {
+  PULSE_CATS.forEach(c => { pulseScores[c.name] = c.count; });
+  pulseTick = 0;
+}
+
+function getSortedCats() {
+  return [...PULSE_CATS]
+    .sort((a, b) => (pulseScores[b.name]||0) - (pulseScores[a.name]||0));
+}
+
+function pulseClockStr(tick) {
+  const totalWeeks = tick;
+  const years  = Math.floor(totalWeeks / 52);
+  const months = Math.floor((totalWeeks % 52) / 4);
+  const weeks  = totalWeeks % 4;
+  if (years > 0) return `Year ${years+1}, Month ${months+1}, Wk ${weeks+1}`;
+  return `Month ${months+1}, Week ${weeks+1}`;
+}
+
+function renderPulse() {
+  const stage = document.getElementById('race-stage');
+  if (!stage) return;
+  const sorted = getSortedCats();
+  const topScore = pulseScores[sorted[0].name] || 1;
+  const visible = sorted.slice(0, VISIBLE_ROWS);
+
+  // Set stage height
+  stage.style.height = (VISIBLE_ROWS * ROW_H) + 'px';
+
+  const existing = {};
+  stage.querySelectorAll('.race-row').forEach(el => {
+    existing[el.dataset.cat] = el;
+  });
+
+  const toKeep = new Set(visible.map(c => c.name));
+  // Remove rows that fell out of top15
+  Object.keys(existing).forEach(name => {
+    if (!toKeep.has(name)) { stage.removeChild(existing[name]); delete existing[name]; }
+  });
+
+  visible.forEach((cat, rank) => {
+    const score  = pulseScores[cat.name] || 0;
+    const pct    = Math.max(2, (score / topScore) * 100);
+    const rankN  = rank + 1;
+    const isTop3 = rankN <= 3;
+    const decay  = score < cat.count * 0.7 ? '▼' : score > cat.count * 1.1 ? '▲' : '';
+    const decayCol = score < cat.count * 0.7 ? 'var(--red)' : 'var(--green)';
+
+    let el = existing[cat.name];
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'race-row';
+      el.dataset.cat = cat.name;
+      el.innerHTML = `
+        <div class="race-rank${isTop3?' top3':''}"></div>
+        <div class="race-emoji">${cat.emoji}</div>
+        <div class="race-name" title="${cat.name}">${cat.name}</div>
+        <div class="race-bar-track"><div class="race-bar-fill"></div></div>
+        <div class="race-score"></div>
+        <div class="race-decay-badge"></div>`;
+      stage.appendChild(el);
+    }
+
+    // Slide row to correct vertical position
+    el.style.transform = `translateY(${rank * ROW_H}px)`;
+
+    // Update content
+    const rankEl = el.querySelector('.race-rank');
+    rankEl.className = 'race-rank' + (isTop3 ? ' top3' : '');
+    rankEl.textContent = rankN;
+
+    const fill = el.querySelector('.race-bar-fill');
+    fill.style.width = pct + '%';
+    fill.style.background = cat.color;
+    fill.style.opacity = 0.35 + (pct / 100) * 0.65;
+
+    el.querySelector('.race-score').textContent = Math.round(score);
+    const db = el.querySelector('.race-decay-badge');
+    db.textContent = decay;
+    db.style.color = decayCol;
+  });
+
+  document.getElementById('pulse-clock').textContent = pulseClockStr(pulseTick);
+}
+
+function tickPulse() {
+  // Apply decay to all
+  PULSE_CATS.forEach(c => {
+    pulseScores[c.name] = (pulseScores[c.name] || c.count) * DECAY_PER_TICK;
+  });
+
+  // Random spikes  (2-4 cats per tick)
+  const spikes = Math.floor(2 + Math.random() * 3);
+  for (let i = 0; i < spikes; i++) {
+    const cat = PULSE_CATS[Math.floor(Math.random() * PULSE_CATS.length)];
+    const boost = (Math.random() * SPIKE_MAX + 2);
+    pulseScores[cat.name] = (pulseScores[cat.name] || cat.count) + boost;
+  }
+
+  // Occasional big surge (trending topic)
+  if (Math.random() < 0.05) {
+    const cat = PULSE_CATS[Math.floor(Math.random() * PULSE_CATS.length)];
+    pulseScores[cat.name] = (pulseScores[cat.name] || cat.count) + cat.count * 0.25;
+  }
+
+  pulseTick += WEEKS_PER_TICK;
+
+  if (!_pulseRafPending) {
+    _pulseRafPending = true;
+    requestAnimationFrame(() => { renderPulse(); _pulseRafPending = false; });
+  }
+}
+
+function pulseInterval() {
+  return Math.round(800 / pulseSpeedMult);
+}
+
+function startPulse() {
+  if (pulseTimer) clearInterval(pulseTimer);
+  pulseTimer = setInterval(tickPulse, pulseInterval());
+  pulsePlaying = true;
+  const btn = document.getElementById('pulse-play-btn');
+  if (btn) { btn.textContent = '⏸ Pause'; btn.classList.add('active-btn'); }
+}
+
+function pausePulse() {
+  if (pulseTimer) { clearInterval(pulseTimer); pulseTimer = null; }
+  pulsePlaying = false;
+  const btn = document.getElementById('pulse-play-btn');
+  if (btn) { btn.textContent = '▶ Play'; btn.classList.remove('active-btn'); }
+}
+
+function togglePulse() {
+  if (pulsePlaying) pausePulse(); else startPulse();
+}
+
+function resetPulse() {
+  pausePulse();
+  initPulseScores();
+  renderPulse();
+  startPulse();
+}
+
+function setPulseSpeed(val) {
+  pulseSpeedMult = parseFloat(val) || 1;
+  if (pulsePlaying) startPulse();
+}
+
+let _pulseInited = false;
+function loadRanking() {
+  if (!_pulseInited) {
+    _pulseInited = true;
+    initPulseScores();
+    renderPulse();
+    startPulse();
+  }
+}
+
 function doRefresh() {
   resetCD(); clearDetail();
+  loadRanking();
   Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets(), loadFeed(), loadGhost(), loadTwitter(), loadReddit()])
     .then(() => { document.getElementById('ts').textContent = new Date().toLocaleTimeString(); });
 }
