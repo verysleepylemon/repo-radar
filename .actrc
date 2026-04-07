@@ -1,0 +1,2 @@
+-P ubuntu-latest=ghcr.io/catthehacker/ubuntu:full-latest
+--env REDIS_URL=redis://127.0.0.1:6379

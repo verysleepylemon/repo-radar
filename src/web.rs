@@ -156,6 +156,9 @@ pub struct WebState {
     reddit_cache: Cache<Vec<VipItem>>,
     newsmap_cache: Cache<Vec<NewsMapItem>>,
     worldevents_cache: Cache<Vec<WorldEventItem>>,
+    /// Cached anonymous Reddit OAuth token (token, acquired_at).
+    /// Refreshed automatically every 55 min via get_reddit_token().
+    reddit_token_cache: Arc<RwLock<Option<(String, Instant)>>>,
 }
 
 impl WebState {
@@ -188,6 +191,7 @@ impl WebState {
             reddit_cache: Arc::new(RwLock::new(None)),
             newsmap_cache: Arc::new(RwLock::new(None)),
             worldevents_cache: Arc::new(RwLock::new(None)),
+            reddit_token_cache: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -1760,7 +1764,7 @@ async fn api_fusion(
     let (hn_res, gh_res, rd_res) = tokio::join!(
         fetch_hn_fusion(&s.http, &topic),
         fetch_github_fusion(&s.http, &topic),
-        fetch_reddit_fusion(&s.http, &topic),
+        fetch_reddit_fusion(&s, &topic),
     );
 
     let mut all_items: Vec<FusionItem> = Vec::new();
@@ -1887,18 +1891,96 @@ async fn fetch_github_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<
     Ok(items)
 }
 
-async fn fetch_reddit_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<FusionItem>> {
-    let resp = http
-        .get("https://www.reddit.com/search.json")
+/// Acquire and cache a Reddit anonymous OAuth token (redlib approach).
+/// Requires REDDIT_CLIENT_ID env var to be set to your Reddit app client_id.
+/// Token is cached for 55 min; auto-refreshed on expiry.
+/// Returns None when REDDIT_CLIENT_ID is unset or acquisition fails.
+async fn get_reddit_token(state: &WebState) -> Option<String> {
+    const TTL: Duration = Duration::from_secs(55 * 60);
+    {
+        let guard = state.reddit_token_cache.read().await;
+        if let Some((ref token, acquired_at)) = *guard {
+            if acquired_at.elapsed() < TTL {
+                return Some(token.clone());
+            }
+        }
+    }
+    let client_id = std::env::var("REDDIT_CLIENT_ID").ok()?;
+    // Stable device_id per process start (not truly random — enough for Reddit)
+    let device_id = format!(
+        "{:016x}{:08x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        std::process::id()
+    );
+    let resp = state
+        .http
+        .post("https://www.reddit.com/api/v1/access_token")
+        .basic_auth(&client_id, Some(""))
+        .header(
+            "User-Agent",
+            "android:com.reddit.frontpage:v2023.21.0 (Linux; Android 13; SM-G991B)",
+        )
+        .form(&[
+            (
+                "grant_type",
+                "https://oauth.reddit.com/grants/installed_client",
+            ),
+            ("device_id", &device_id),
+        ])
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        tracing::warn!(
+            status = %resp.status(),
+            "Reddit OAuth token acquisition failed"
+        );
+        return None;
+    }
+    let data: serde_json::Value = resp.json().await.ok()?;
+    let token = data["access_token"].as_str()?.to_string();
+    tracing::info!("Reddit OAuth token acquired (valid ~1 hr)");
+    *state.reddit_token_cache.write().await = Some((token.clone(), Instant::now()));
+    Some(token)
+}
+
+/// Reddit search via anonymous OAuth token (redlib approach) or direct API.
+/// If REDDIT_CLIENT_ID is set, uses oauth.reddit.com with Bearer auth.
+/// Falls back to www.reddit.com with browser UA; returns empty on 403.
+async fn fetch_reddit_fusion(state: &WebState, topic: &str) -> Result<Vec<FusionItem>> {
+    let token = get_reddit_token(state).await;
+    let (api_url, ua) = if token.is_some() {
+        (
+            "https://oauth.reddit.com/search.json",
+            "android:com.reddit.frontpage:v2023.21.0 (Linux; Android 13; SM-G991B)",
+        )
+    } else {
+        (
+            "https://www.reddit.com/search.json",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+        )
+    };
+    let mut builder = state
+        .http
+        .get(api_url)
         .query(&[
             ("q", topic),
             ("sort", "top"),
             ("t", "week"),
             ("limit", "10"),
         ])
-        .header("User-Agent", "repo-radar/1.0 fusion-engine")
-        .send()
-        .await?;
+        .header("User-Agent", ua);
+    if let Some(ref t) = token {
+        builder = builder.bearer_auth(t);
+    }
+    let resp = builder.send().await?;
+    if !resp.status().is_success() {
+        tracing::debug!(status = %resp.status(), topic, "Reddit fusion search skipped");
+        return Ok(vec![]);
+    }
     let data: serde_json::Value = resp.json().await?;
     let items = data["data"]["children"]
         .as_array()
