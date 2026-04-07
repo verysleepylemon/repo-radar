@@ -5,10 +5,15 @@ param(
     [int]$Port = 8080
 )
 
+# ── MinGW in PATH (needed for cargo build on windows-gnu toolchain) ───────────
+if (Test-Path "C:\msys64\mingw64\bin") {
+    $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+}
+
 $redisExe  = "C:\redis\redis-server.exe"
 $redisConf = "C:\redis\redis.windows.conf"
 $redisCli  = "C:\redis\redis-cli.exe"
-$serverExe = "$PSScriptRoot\target2\debug\repo-radar.exe"
+$serverExe = "$PSScriptRoot\target\debug\repo-radar.exe"
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
 $pong = & $redisCli ping 2>$null

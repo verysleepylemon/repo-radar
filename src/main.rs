@@ -43,6 +43,8 @@ enum Commands {
     Check { repo: String },
     /// Show the last 20 alerts stored in Redis
     Status,
+    /// Health-check all dependencies and data sources
+    Doctor,
 }
 
 #[tokio::main]
@@ -69,6 +71,7 @@ async fn main() -> Result<()> {
         Commands::Serve { port } => run_serve(cli.config, port).await?,
         Commands::Check { repo } => run_check(cli.config, &repo).await?,
         Commands::Status => run_status(cli.config).await?,
+        Commands::Doctor => run_doctor(cli.config).await?,
     }
 
     Ok(())
@@ -287,4 +290,157 @@ async fn run_status(config: Config) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Health-check all data sources and dependencies.
+/// Inspired by `claw doctor` from ultraworkers/claw-code — a startup sanity
+/// check that surfaces broken deps before the main loop runs.
+async fn run_doctor(config: Config) -> Result<()> {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .user_agent("repo-radar/doctor")
+        .build()?;
+
+    println!("repo-radar doctor — checking dependencies\n");
+
+    // ── Redis ────────────────────────────────────────────────────────────────
+    let redis_ok = RedisStore::connect(&config.redis_url).await.is_ok();
+    print_check("Redis", &config.redis_url, redis_ok, None);
+
+    // ── GitHub API ───────────────────────────────────────────────────────────
+    let gh_result = {
+        let mut req = http.get("https://api.github.com/rate_limit");
+        if let Some(ref tok) = config.github_token {
+            req = req.bearer_auth(tok);
+        }
+        req.send().await
+    };
+    let (gh_ok, gh_note) = match gh_result {
+        Ok(r) if r.status().is_success() => {
+            let remaining = r
+                .json::<serde_json::Value>()
+                .await
+                .ok()
+                .and_then(|v| v["rate"]["remaining"].as_u64())
+                .map(|n| format!("{n} requests remaining"))
+                .unwrap_or_default();
+            (true, Some(remaining))
+        }
+        Ok(r) => (false, Some(format!("HTTP {}", r.status()))),
+        Err(e) => (false, Some(e.to_string())),
+    };
+    let gh_token_label = if config.github_token.is_some() {
+        "authenticated"
+    } else {
+        "unauthenticated (set GITHUB_TOKEN for 5000 req/hr)"
+    };
+    print_check(
+        "GitHub API",
+        gh_token_label,
+        gh_ok,
+        gh_note.as_deref(),
+    );
+
+    // ── HackerNews Firebase ───────────────────────────────────────────────────
+    let hn_ok = http
+        .get("https://hacker-news.firebaseio.com/v0/topstories.json?limitToFirst=1&orderBy=%22$key%22")
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+    print_check("HackerNews Firebase", "hacker-news.firebaseio.com", hn_ok, None);
+
+    // ── Reddit ───────────────────────────────────────────────────────────────
+    let rd_result = http
+        .get("https://www.reddit.com/r/rust.json?limit=1")
+        .header("Accept", "application/json")
+        .send()
+        .await;
+    let (rd_ok, rd_note) = match rd_result {
+        Ok(r) if r.status().is_success() => (true, None),
+        Ok(r) => (false, Some(format!("HTTP {} (may be rate-limited)", r.status()))),
+        Err(e) => (false, Some(e.to_string())),
+    };
+    print_check("Reddit API", "www.reddit.com", rd_ok, rd_note.as_deref());
+
+    // ── NPM Registry ─────────────────────────────────────────────────────────
+    let npm_ok = http
+        .get("https://registry.npmjs.org/@anthropic-ai%2Fclaude-code/latest")
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+    print_check("NPM Registry", "registry.npmjs.org", npm_ok, None);
+
+    // ── RSS (HN via Algolia) ──────────────────────────────────────────────────
+    let rss_ok = http
+        .get("https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=1")
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+    print_check("HN Algolia RSS", "hn.algolia.com", rss_ok, None);
+
+    // ── Twitter/X ─────────────────────────────────────────────────────────────
+    let tw_configured = config.twitter_bearer_token.is_some();
+    print_check(
+        "Twitter/X",
+        if tw_configured { "token configured" } else { "no TWITTER_BEARER_TOKEN (optional)" },
+        tw_configured,
+        if tw_configured { None } else { Some("disabled — set TWITTER_BEARER_TOKEN to enable") },
+    );
+
+    // ── Environment summary ────────────────────────────────────────────────────
+    println!("\n── env tokens ──────────────────────────────────────────────");
+    println!(
+        "  GITHUB_TOKEN         {}",
+        if config.github_token.is_some() { "set ✓" } else { "unset  (60 req/hr limit applies)" }
+    );
+    println!(
+        "  TWITTER_BEARER_TOKEN {}",
+        if config.twitter_bearer_token.is_some() { "set ✓" } else { "unset  (Twitter feed disabled)" }
+    );
+    println!(
+        "  DISCORD_WEBHOOK_URL  {}",
+        if config.discord_webhook_url.is_some() { "set ✓" } else { "unset  (Discord alerts disabled)" }
+    );
+    println!(
+        "  TELEGRAM_BOT_TOKEN   {}",
+        if config.telegram_bot_token.is_some() { "set ✓" } else { "unset  (Telegram alerts disabled)" }
+    );
+    println!(
+        "  REDIS_URL            {}",
+        config.redis_url
+    );
+
+    // ── Routes ────────────────────────────────────────────────────────────────
+    println!("\n── live routes (serve mode) ────────────────────────────────");
+    let routes = [
+        "/               → dashboard",
+        "/api/alerts     → trend alerts (Redis)",
+        "/api/vip        → VIP AI feed",
+        "/api/social     → social pulse",
+        "/api/feed       → world feed (classified)",
+        "/api/trending   → GitHub trending",
+        "/api/leaks      → leak tracker + NPM monitor",
+        "/api/ghost      → ghost accounts",
+        "/api/twitter    → Twitter/X (requires token)",
+        "/api/reddit     → Reddit world feed",
+        "/api/secrets    → secret scanner",
+        "/api/newsmap    → tech news map",
+        "/api/fusion     → signal fusion",
+        "/api/hunt/:u    → social hunt",
+    ];
+    for r in routes {
+        println!("  {r}");
+    }
+
+    println!();
+    Ok(())
+}
+
+fn print_check(name: &str, target: &str, ok: bool, note: Option<&str>) {
+    let icon = if ok { "✓" } else { "✗" };
+    let note_str = note.map(|n| format!(" — {n}")).unwrap_or_default();
+    println!("  [{icon}] {name:<22} {target}{note_str}");
 }
