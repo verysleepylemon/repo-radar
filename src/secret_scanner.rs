@@ -342,10 +342,19 @@ impl SecretScanner {
         })
     }
 
-    /// Run forever — poll GitHub Events and scan commits every 30 seconds.
+    /// Run forever — poll GitHub Events and scan commits every 90 seconds.
+    /// Silently does nothing when GITHUB_TOKEN is not set — unauthenticated
+    /// calls exhaust the 60 req/hr limit within minutes.
     pub async fn run_forever(&self) {
-        info!("Secret scanner started — polling GitHub Events API every 30s");
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        let token = std::env::var("GITHUB_TOKEN").ok();
+        if token.is_none() {
+            info!("Secret scanner: GITHUB_TOKEN not set — skipping GitHub Events polling");
+            // Sleep forever rather than spamming rate-limit errors.
+            std::future::pending::<()>().await;
+            return;
+        }
+        info!("Secret scanner started — polling GitHub Events API every 90s");
+        let mut interval = tokio::time::interval(Duration::from_secs(90));
         loop {
             interval.tick().await;
             if let Err(e) = self.poll_once().await {
@@ -355,11 +364,13 @@ impl SecretScanner {
     }
 
     async fn poll_once(&self) -> anyhow::Result<()> {
+        let token = std::env::var("GITHUB_TOKEN").unwrap_or_default();
         let events: serde_json::Value = self
             .http
             .get("https://api.github.com/events")
             .query(&[("per_page", "30")])
             .header("Accept", "application/vnd.github+json")
+            .bearer_auth(&token)
             .send()
             .await?
             .json()
@@ -399,11 +410,13 @@ impl SecretScanner {
     }
 
     async fn scan_commit(&self, repo: &str, sha: &str) -> anyhow::Result<()> {
+        let token = std::env::var("GITHUB_TOKEN").unwrap_or_default();
         let url = format!("https://api.github.com/repos/{repo}/commits/{sha}");
         let resp = self
             .http
             .get(&url)
             .header("Accept", "application/vnd.github+json")
+            .bearer_auth(&token)
             .send()
             .await?;
         if !resp.status().is_success() {

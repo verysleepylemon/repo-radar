@@ -573,7 +573,10 @@ async fn fetch_vip_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
     if let Ok(resp) = http
         .get("https://hn.algolia.com/api/v1/search")
         .query(&[
-            ("query", "AI claude anthropic openai github security leak breach"),
+            (
+                "query",
+                "AI claude anthropic openai github security leak breach",
+            ),
             ("tags", "story"),
             ("hitsPerPage", "40"),
         ])
@@ -596,7 +599,11 @@ async fn fetch_vip_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
                     if vip_match.is_some() || is_ai {
                         items.push(VipItem {
                             title,
-                            url: if story_url.is_empty() { fallback } else { story_url },
+                            url: if story_url.is_empty() {
+                                fallback
+                            } else {
+                                story_url
+                            },
                             source: "HN Algolia".into(),
                             score: hit["points"].as_u64().map(|v| v as u32),
                             by: hit["author"].as_str().map(Into::into),
@@ -662,14 +669,14 @@ async fn fetch_social_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
 
     // Reddit public JSON API blocked (403). Replaced with HN Algolia + Lobsters.
     // ── HN Algolia: general recent stories ───────────────────────────────────
-    for query in &["programming security AI", "devops tech news", "open source release"] {
+    for query in &[
+        "programming security AI",
+        "devops tech news",
+        "open source release",
+    ] {
         if let Ok(resp) = http
             .get("https://hn.algolia.com/api/v1/search_by_date")
-            .query(&[
-                ("query", *query),
-                ("tags", "story"),
-                ("hitsPerPage", "20"),
-            ])
+            .query(&[("query", *query), ("tags", "story"), ("hitsPerPage", "20")])
             .send()
             .await
         {
@@ -677,7 +684,9 @@ async fn fetch_social_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
                 if let Some(hits) = data["hits"].as_array() {
                     for hit in hits {
                         let title = hit["title"].as_str().unwrap_or("").to_string();
-                        if title.is_empty() { continue; }
+                        if title.is_empty() {
+                            continue;
+                        }
                         let story_url = hit["url"].as_str().unwrap_or("").to_string();
                         let hn_id = hit["objectID"].as_str().unwrap_or("0");
                         let fallback = format!("https://news.ycombinator.com/item?id={hn_id}");
@@ -688,7 +697,11 @@ async fn fetch_social_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
                             .map(|s| s.to_string());
                         items.push(VipItem {
                             title,
-                            url: if story_url.is_empty() { fallback } else { story_url },
+                            url: if story_url.is_empty() {
+                                fallback
+                            } else {
+                                story_url
+                            },
                             source: "HN Algolia".into(),
                             score: hit["points"].as_u64().map(|v| v as u32),
                             by: hit["author"].as_str().map(Into::into),
@@ -706,7 +719,9 @@ async fn fetch_social_feed(http: &reqwest::Client) -> Result<Vec<VipItem>> {
             for s in stories.iter().take(25) {
                 let title = s["title"].as_str().unwrap_or("").to_string();
                 let story_url = s["url"].as_str().unwrap_or("").to_string();
-                if title.is_empty() || story_url.is_empty() { continue; }
+                if title.is_empty() || story_url.is_empty() {
+                    continue;
+                }
                 let combined = format!("{title} {story_url}").to_lowercase();
                 let vip_match = VIP_TERMS
                     .iter()
@@ -997,11 +1012,7 @@ async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
     ] {
         if let Ok(resp) = http
             .get("https://hn.algolia.com/api/v1/search")
-            .query(&[
-                ("query", *query),
-                ("tags", "story"),
-                ("hitsPerPage", "20"),
-            ])
+            .query(&[("query", *query), ("tags", "story"), ("hitsPerPage", "20")])
             .send()
             .await
         {
@@ -1009,9 +1020,13 @@ async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
                 if let Some(hits) = data["hits"].as_array() {
                     for hit in hits {
                         let title = hit["title"].as_str().unwrap_or("").to_string();
-                        if title.is_empty() { continue; }
+                        if title.is_empty() {
+                            continue;
+                        }
                         let score = hit["points"].as_u64().unwrap_or(0);
-                        if score < 30 { continue; }
+                        if score < 30 {
+                            continue;
+                        }
                         let story_url = hit["url"].as_str().unwrap_or("").to_string();
                         let hn_id = hit["objectID"].as_str().unwrap_or("0");
                         let comments = hit["num_comments"].as_u64().unwrap_or(0);
@@ -1041,7 +1056,9 @@ async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
                 let title = s["title"].as_str().unwrap_or("").to_string();
                 let story_url = s["url"].as_str().unwrap_or("").to_string();
                 let score = s["score"].as_u64().unwrap_or(0);
-                if title.is_empty() || score < 5 { continue; }
+                if title.is_empty() || score < 5 {
+                    continue;
+                }
                 let comments = s["comment_count"].as_u64().unwrap_or(0);
                 items.push(VipItem {
                     title,
@@ -1067,6 +1084,12 @@ async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
 }
 
 async fn fetch_github_trending(http: &reqwest::Client) -> Result<serde_json::Value> {
+    // Require an authenticated token — unauthenticated calls exhaust the 60 req/hr
+    // limit almost immediately and return rate-limit error JSON instead of repos.
+    let token = std::env::var("GITHUB_TOKEN").ok();
+    if token.is_none() {
+        return Ok(serde_json::json!([]));
+    }
     let since = (Utc::now() - CDuration::days(30))
         .format("%Y-%m-%d")
         .to_string();
@@ -1081,11 +1104,13 @@ async fn fetch_github_trending(http: &reqwest::Client) -> Result<serde_json::Val
             ("per_page", "15"),
         ])
         .header("Accept", "application/vnd.github+json")
+        .bearer_auth(token.unwrap())
         .send()
         .await?;
 
     if !resp.status().is_success() {
-        anyhow::bail!("GitHub API {}", resp.status());
+        // Rate-limited or error — return empty rather than propagating failure.
+        return Ok(serde_json::json!([]));
     }
 
     let data: serde_json::Value = resp.json().await?;
@@ -1476,13 +1501,38 @@ async fn fetch_world_feed(http: &reqwest::Client) -> Result<Vec<WorldFeedItem>> 
 fn is_tech_relevant(text: &str) -> bool {
     let lo = text.to_lowercase();
     const NOISE: &[&str] = &[
-        "netflix", "hbo max", "disney+", "hulu", "peacock", "paramount+",
-        "prime video", "apple tv+", " tv show", "television show", " new season",
-        "season finale", " episode ", "box office", "movie review", "film review",
-        "grammy award", "oscar award", "emmy award", "golden globe", "bafta",
-        "kardashian", "music video", "album drop", "chart-topping",
-        "nfl draft", "nba trade", "fifa world cup", "super bowl",
-        "reality show", "talk show", "soap opera",
+        "netflix",
+        "hbo max",
+        "disney+",
+        "hulu",
+        "peacock",
+        "paramount+",
+        "prime video",
+        "apple tv+",
+        " tv show",
+        "television show",
+        " new season",
+        "season finale",
+        " episode ",
+        "box office",
+        "movie review",
+        "film review",
+        "grammy award",
+        "oscar award",
+        "emmy award",
+        "golden globe",
+        "bafta",
+        "kardashian",
+        "music video",
+        "album drop",
+        "chart-topping",
+        "nfl draft",
+        "nba trade",
+        "fifa world cup",
+        "super bowl",
+        "reality show",
+        "talk show",
+        "soap opera",
     ];
     !NOISE.iter().any(|kw| lo.contains(kw))
 }
@@ -1490,86 +1540,86 @@ fn is_tech_relevant(text: &str) -> bool {
 /// Map a news item to approximate lat/lng via a keyword lookup table.
 fn geo_tag(title: &str, url: &str) -> Option<(f64, f64, &'static str)> {
     let hay = format!("{title} {url}").to_lowercase();
-    const PLACES: &[(&str, f64, f64, &'static str)] = &[
+    const PLACES: &[(&str, f64, f64, &str)] = &[
         // US cities / tech hubs
         ("silicon valley", 37.4, -122.1, "USA"),
-        ("san francisco",  37.7, -122.4, "USA"),
-        ("new york",       40.7,  -74.0, "USA"),
-        ("seattle",        47.6, -122.3, "USA"),
-        ("boston",         42.4,  -71.1, "USA"),
-        ("austin",         30.3,  -97.7, "USA"),
-        ("washington dc",  38.9,  -77.0, "USA"),
-        ("los angeles",    34.1, -118.2, "USA"),
+        ("san francisco", 37.7, -122.4, "USA"),
+        ("new york", 40.7, -74.0, "USA"),
+        ("seattle", 47.6, -122.3, "USA"),
+        ("boston", 42.4, -71.1, "USA"),
+        ("austin", 30.3, -97.7, "USA"),
+        ("washington dc", 38.9, -77.0, "USA"),
+        ("los angeles", 34.1, -118.2, "USA"),
         // US companies → SF / Seattle as proxy geo
-        ("openai",     37.7, -122.4, "USA"),
-        ("anthropic",  37.8, -122.4, "USA"),
-        ("google",     37.4, -122.1, "USA"),
-        ("microsoft",  47.6, -122.1, "USA"),
-        ("apple",      37.3, -122.0, "USA"),
-        ("meta ",      37.5, -122.2, "USA"),
-        ("amazon",     47.6, -122.3, "USA"),
-        ("nvidia",     37.4, -122.0, "USA"),
-        ("spacex",     33.9, -118.4, "USA"),
-        ("tesla",      37.4, -122.0, "USA"),
+        ("openai", 37.7, -122.4, "USA"),
+        ("anthropic", 37.8, -122.4, "USA"),
+        ("google", 37.4, -122.1, "USA"),
+        ("microsoft", 47.6, -122.1, "USA"),
+        ("apple", 37.3, -122.0, "USA"),
+        ("meta ", 37.5, -122.2, "USA"),
+        ("amazon", 47.6, -122.3, "USA"),
+        ("nvidia", 37.4, -122.0, "USA"),
+        ("spacex", 33.9, -118.4, "USA"),
+        ("tesla", 37.4, -122.0, "USA"),
         // Generic US signals
         ("united states", 38.0, -97.0, "USA"),
-        ("u.s.",           38.0, -97.0, "USA"),
-        ("american",       38.0, -97.0, "USA"),
-        ("congress",       38.9, -77.0, "USA"),
-        (" nsa ",          39.1, -76.8, "USA"),
-        (" cia ",          38.9, -77.1, "USA"),
+        ("u.s.", 38.0, -97.0, "USA"),
+        ("american", 38.0, -97.0, "USA"),
+        ("congress", 38.9, -77.0, "USA"),
+        (" nsa ", 39.1, -76.8, "USA"),
+        (" cia ", 38.9, -77.1, "USA"),
         // UK
-        ("london",        51.5,  -0.1, "UK"),
-        ("united kingdom",51.5,  -0.1, "UK"),
-        ("britain",       51.5,  -2.0, "UK"),
-        ("deepmind",      51.5,  -0.1, "UK"),
-        ("arm holdings",  51.5,  -0.1, "UK"),
+        ("london", 51.5, -0.1, "UK"),
+        ("united kingdom", 51.5, -0.1, "UK"),
+        ("britain", 51.5, -2.0, "UK"),
+        ("deepmind", 51.5, -0.1, "UK"),
+        ("arm holdings", 51.5, -0.1, "UK"),
         // Europe
-        ("paris",         48.9,  2.3, "France"),
-        ("berlin",        52.5, 13.4, "Germany"),
-        ("amsterdam",     52.4,  4.9, "Netherlands"),
-        ("stockholm",     59.3, 18.1, "Sweden"),
-        ("brussels",      50.8,  4.4, "Belgium"),
-        ("munich",        48.1, 11.6, "Germany"),
-        ("german",        51.2, 10.5, "Germany"),
-        ("european union",50.8,  4.4, "EU"),
-        ("europe",        50.0, 10.0, "Europe"),
+        ("paris", 48.9, 2.3, "France"),
+        ("berlin", 52.5, 13.4, "Germany"),
+        ("amsterdam", 52.4, 4.9, "Netherlands"),
+        ("stockholm", 59.3, 18.1, "Sweden"),
+        ("brussels", 50.8, 4.4, "Belgium"),
+        ("munich", 48.1, 11.6, "Germany"),
+        ("german", 51.2, 10.5, "Germany"),
+        ("european union", 50.8, 4.4, "EU"),
+        ("europe", 50.0, 10.0, "Europe"),
         // China
-        ("beijing",  39.9, 116.4, "China"),
+        ("beijing", 39.9, 116.4, "China"),
         ("shanghai", 31.2, 121.5, "China"),
-        ("alibaba",  30.3, 120.1, "China"),
-        ("tencent",  22.5, 114.1, "China"),
-        ("baidu",    39.9, 116.4, "China"),
-        ("huawei",   22.5, 114.1, "China"),
-        ("china",    35.9, 104.2, "China"),
-        ("chinese",  35.9, 104.2, "China"),
+        ("alibaba", 30.3, 120.1, "China"),
+        ("tencent", 22.5, 114.1, "China"),
+        ("baidu", 39.9, 116.4, "China"),
+        ("huawei", 22.5, 114.1, "China"),
+        ("china", 35.9, 104.2, "China"),
+        ("chinese", 35.9, 104.2, "China"),
         // Japan / Korea
-        ("tokyo",    35.7, 139.7, "Japan"),
-        ("japan",    36.2, 138.3, "Japan"),
-        ("sony",     35.7, 139.7, "Japan"),
+        ("tokyo", 35.7, 139.7, "Japan"),
+        ("japan", 36.2, 138.3, "Japan"),
+        ("sony", 35.7, 139.7, "Japan"),
         ("softbank", 35.7, 139.7, "Japan"),
-        ("seoul",    37.6, 127.0, "S.Korea"),
-        ("samsung",  37.5, 127.0, "S.Korea"),
-        ("korea",    36.0, 128.0, "S.Korea"),
+        ("seoul", 37.6, 127.0, "S.Korea"),
+        ("samsung", 37.5, 127.0, "S.Korea"),
+        ("korea", 36.0, 128.0, "S.Korea"),
         // India
-        ("india",     20.6,  79.1, "India"),
-        ("bangalore", 12.9,  77.6, "India"),
-        ("mumbai",    19.1,  72.9, "India"),
+        ("india", 20.6, 79.1, "India"),
+        ("bangalore", 12.9, 77.6, "India"),
+        ("mumbai", 19.1, 72.9, "India"),
         // Singapore / Taiwan / Australia
-        ("singapore", 1.4,  103.8, "Singapore"),
-        ("taiwan",   23.7,  121.0, "Taiwan"),
-        ("tsmc",     24.8,  120.9, "Taiwan"),
-        ("australia",-25.3, 133.8, "Australia"),
-        ("sydney",   -33.9, 151.2, "Australia"),
+        ("singapore", 1.4, 103.8, "Singapore"),
+        ("taiwan", 23.7, 121.0, "Taiwan"),
+        ("tsmc", 24.8, 120.9, "Taiwan"),
+        ("australia", -25.3, 133.8, "Australia"),
+        ("sydney", -33.9, 151.2, "Australia"),
         // Middle East
-        ("israel",   31.5,  34.8, "Israel"),
-        ("tel aviv", 32.1,  34.8, "Israel"),
-        ("saudi",    24.7,  46.7, "Saudi Arabia"),
+        ("israel", 31.5, 34.8, "Israel"),
+        ("tel aviv", 32.1, 34.8, "Israel"),
+        ("saudi", 24.7, 46.7, "Saudi Arabia"),
         // Americas
-        ("canada",  56.1, -106.3, "Canada"),
-        ("toronto", 43.7,  -79.4, "Canada"),
-        ("brazil", -14.2,  -51.9, "Brazil"),
-        ("mexico",  23.6, -102.6, "Mexico"),
+        ("canada", 56.1, -106.3, "Canada"),
+        ("toronto", 43.7, -79.4, "Canada"),
+        ("brazil", -14.2, -51.9, "Brazil"),
+        ("mexico", 23.6, -102.6, "Mexico"),
     ];
     for &(kw, lat, lng, country) in PLACES {
         if hay.contains(kw) {
@@ -1629,10 +1679,8 @@ async fn api_worldevents(State(s): State<Arc<WebState>>) -> Json<Vec<WorldEventI
     let mut events: Vec<WorldEventItem> = Vec::new();
 
     // Run world-feed and GitHub fetch concurrently
-    let (feed_result, gh_result) = tokio::join!(
-        fetch_world_feed(&s.http),
-        fetch_github_trending(&s.http)
-    );
+    let (feed_result, gh_result) =
+        tokio::join!(fetch_world_feed(&s.http), fetch_github_trending(&s.http));
 
     // ── News items from world feed ──────────────────────────────────────────
     let feed = feed_result.unwrap_or_default();
@@ -1664,8 +1712,8 @@ async fn api_worldevents(State(s): State<Arc<WebState>>) -> Json<Vec<WorldEventI
                 let stars = repo["stargazers_count"].as_u64().map(|v| v as u32);
                 // Try geo-tagging from repo description + full_name
                 let geo_title = format!("{full_name} {desc}");
-                let (lat, lng, country) = geo_tag(&geo_title, &url)
-                    .unwrap_or((37.09, -95.71, "USA"));
+                let (lat, lng, country) =
+                    geo_tag(&geo_title, &url).unwrap_or((37.09, -95.71, "USA"));
                 let title = if desc.is_empty() {
                     full_name.clone()
                 } else {
@@ -1744,8 +1792,7 @@ async fn api_fusion(
     let fused_score = if total == 0.0 {
         0.0
     } else {
-        (hn_hits as f64 * 3.0 + github_hits as f64 * 1.5 + reddit_hits as f64 * 1.0)
-            / (total * 3.0)
+        (hn_hits as f64 * 3.0 + github_hits as f64 * 1.5 + reddit_hits as f64 * 1.0) / (total * 3.0)
             * 100.0
     };
     let sources_active = [hn_hits, github_hits, reddit_hits]
@@ -1804,12 +1851,20 @@ async fn fetch_hn_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<Fusi
 }
 
 async fn fetch_github_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<FusionItem>> {
+    let token = std::env::var("GITHUB_TOKEN").ok();
+    if token.is_none() {
+        return Ok(vec![]);
+    }
     let resp = http
         .get("https://api.github.com/search/repositories")
         .query(&[("q", topic), ("sort", "stars"), ("per_page", "10")])
         .header("User-Agent", "repo-radar/1.0")
+        .bearer_auth(token.unwrap())
         .send()
         .await?;
+    if !resp.status().is_success() {
+        return Ok(vec![]);
+    }
     let data: serde_json::Value = resp.json().await?;
     let items = data["items"]
         .as_array()
@@ -1835,7 +1890,12 @@ async fn fetch_github_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<
 async fn fetch_reddit_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<FusionItem>> {
     let resp = http
         .get("https://www.reddit.com/search.json")
-        .query(&[("q", topic), ("sort", "top"), ("t", "week"), ("limit", "10")])
+        .query(&[
+            ("q", topic),
+            ("sort", "top"),
+            ("t", "week"),
+            ("limit", "10"),
+        ])
         .header("User-Agent", "repo-radar/1.0 fusion-engine")
         .send()
         .await?;
@@ -1884,28 +1944,32 @@ async fn api_hunt(
     }
 
     const PLATFORMS: &[(&str, &str, &str)] = &[
-        ("GitHub",        "https://github.com/{}",                   "⬛"),
-        ("npm",           "https://www.npmjs.com/~{}",               "📦"),
-        ("PyPI",          "https://pypi.org/user/{}/",               "🐍"),
-        ("DEV.to",        "https://dev.to/{}",                       "🧑‍💻"),
-        ("Medium",        "https://medium.com/@{}",                  "📝"),
-        ("Reddit",        "https://www.reddit.com/user/{}/",         "🔴"),
-        ("HackerNews",    "https://news.ycombinator.com/user?id={}","🟠"),
-        ("Keybase",       "https://keybase.io/{}",                   "🔑"),
-        ("GitLab",        "https://gitlab.com/{}",                   "🦊"),
-        ("Codeberg",      "https://codeberg.org/{}",                 "🧊"),
-        ("SourceHut",     "https://sr.ht/~{}/",                      "🌸"),
-        ("crates.io",     "https://crates.io/users/{}",              "🦀"),
-        ("Docker Hub",    "https://hub.docker.com/u/{}/",            "🐳"),
-        ("Replit",        "https://replit.com/@{}",                  "♻️"),
-        ("Kaggle",        "https://www.kaggle.com/{}",               "📊"),
-        ("Mastodon",      "https://mastodon.social/@{}",             "🐘"),
-        ("Lobste.rs",     "https://lobste.rs/u/{}",                  "🦞"),
-        ("CodePen",       "https://codepen.io/{}",                   "✏️"),
-        ("Hashnode",      "https://hashnode.com/@{}",                "📰"),
-        ("Speakerdeck",   "https://speakerdeck.com/{}",              "🎤"),
-        ("Twitch",        "https://www.twitch.tv/{}",                "🎮"),
-        ("YouTube",       "https://www.youtube.com/@{}",             "▶️"),
+        ("GitHub", "https://github.com/{}", "⬛"),
+        ("npm", "https://www.npmjs.com/~{}", "📦"),
+        ("PyPI", "https://pypi.org/user/{}/", "🐍"),
+        ("DEV.to", "https://dev.to/{}", "🧑‍💻"),
+        ("Medium", "https://medium.com/@{}", "📝"),
+        ("Reddit", "https://www.reddit.com/user/{}/", "🔴"),
+        (
+            "HackerNews",
+            "https://news.ycombinator.com/user?id={}",
+            "🟠",
+        ),
+        ("Keybase", "https://keybase.io/{}", "🔑"),
+        ("GitLab", "https://gitlab.com/{}", "🦊"),
+        ("Codeberg", "https://codeberg.org/{}", "🧊"),
+        ("SourceHut", "https://sr.ht/~{}/", "🌸"),
+        ("crates.io", "https://crates.io/users/{}", "🦀"),
+        ("Docker Hub", "https://hub.docker.com/u/{}/", "🐳"),
+        ("Replit", "https://replit.com/@{}", "♻️"),
+        ("Kaggle", "https://www.kaggle.com/{}", "📊"),
+        ("Mastodon", "https://mastodon.social/@{}", "🐘"),
+        ("Lobste.rs", "https://lobste.rs/u/{}", "🦞"),
+        ("CodePen", "https://codepen.io/{}", "✏️"),
+        ("Hashnode", "https://hashnode.com/@{}", "📰"),
+        ("Speakerdeck", "https://speakerdeck.com/{}", "🎤"),
+        ("Twitch", "https://www.twitch.tv/{}", "🎮"),
+        ("YouTube", "https://www.youtube.com/@{}", "▶️"),
     ];
 
     let futs: Vec<_> = PLATFORMS
@@ -1914,11 +1978,8 @@ async fn api_hunt(
             let url = url_tpl.replace("{}", &clean);
             let http = s.http.clone();
             async move {
-                let result = tokio::time::timeout(
-                    Duration::from_secs(5),
-                    http.head(&url).send(),
-                )
-                .await;
+                let result =
+                    tokio::time::timeout(Duration::from_secs(5), http.head(&url).send()).await;
                 let found = matches!(result, Ok(Ok(ref r)) if r.status().is_success());
                 SocialHit {
                     platform: name.to_string(),
@@ -1959,8 +2020,8 @@ pub async fn start_server(
         .route("/api/newsmap", get(api_newsmap))
         .route("/api/fusion", get(api_fusion))
         .route("/api/hunt/:username", get(api_hunt))
-        .route("/worldmap",            get(serve_worldmap))
-        .route("/api/worldevents",    get(api_worldevents))
+        .route("/worldmap", get(serve_worldmap))
+        .route("/api/worldevents", get(api_worldevents))
         .with_state(state)
         .layer(CorsLayer::permissive());
 

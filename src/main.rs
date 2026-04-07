@@ -334,12 +334,7 @@ async fn run_doctor(config: Config) -> Result<()> {
     } else {
         "unauthenticated (set GITHUB_TOKEN for 5000 req/hr)"
     };
-    print_check(
-        "GitHub API",
-        gh_token_label,
-        gh_ok,
-        gh_note.as_deref(),
-    );
+    print_check("GitHub API", gh_token_label, gh_ok, gh_note.as_deref());
 
     // ── HackerNews Firebase ───────────────────────────────────────────────────
     let hn_ok = http
@@ -348,7 +343,12 @@ async fn run_doctor(config: Config) -> Result<()> {
         .await
         .map(|r| r.status().is_success())
         .unwrap_or(false);
-    print_check("HackerNews Firebase", "hacker-news.firebaseio.com", hn_ok, None);
+    print_check(
+        "HackerNews Firebase",
+        "hacker-news.firebaseio.com",
+        hn_ok,
+        None,
+    );
 
     // ── Reddit ───────────────────────────────────────────────────────────────
     let rd_result = http
@@ -358,7 +358,10 @@ async fn run_doctor(config: Config) -> Result<()> {
         .await;
     let (rd_ok, rd_note) = match rd_result {
         Ok(r) if r.status().is_success() => (true, None),
-        Ok(r) => (false, Some(format!("HTTP {} (may be rate-limited)", r.status()))),
+        Ok(r) => (
+            false,
+            Some(format!("HTTP {} (may be rate-limited)", r.status())),
+        ),
         Err(e) => (false, Some(e.to_string())),
     };
     print_check("Reddit API", "www.reddit.com", rd_ok, rd_note.as_deref());
@@ -385,33 +388,54 @@ async fn run_doctor(config: Config) -> Result<()> {
     let tw_configured = config.twitter_bearer_token.is_some();
     print_check(
         "Twitter/X",
-        if tw_configured { "token configured" } else { "no TWITTER_BEARER_TOKEN (optional)" },
+        if tw_configured {
+            "token configured"
+        } else {
+            "no TWITTER_BEARER_TOKEN (optional)"
+        },
         tw_configured,
-        if tw_configured { None } else { Some("disabled — set TWITTER_BEARER_TOKEN to enable") },
+        if tw_configured {
+            None
+        } else {
+            Some("disabled — set TWITTER_BEARER_TOKEN to enable")
+        },
     );
 
     // ── Environment summary ────────────────────────────────────────────────────
     println!("\n── env tokens ──────────────────────────────────────────────");
     println!(
         "  GITHUB_TOKEN         {}",
-        if config.github_token.is_some() { "set ✓" } else { "unset  (60 req/hr limit applies)" }
+        if config.github_token.is_some() {
+            "set ✓"
+        } else {
+            "unset  (60 req/hr limit applies)"
+        }
     );
     println!(
         "  TWITTER_BEARER_TOKEN {}",
-        if config.twitter_bearer_token.is_some() { "set ✓" } else { "unset  (Twitter feed disabled)" }
+        if config.twitter_bearer_token.is_some() {
+            "set ✓"
+        } else {
+            "unset  (Twitter feed disabled)"
+        }
     );
     println!(
         "  DISCORD_WEBHOOK_URL  {}",
-        if config.discord_webhook_url.is_some() { "set ✓" } else { "unset  (Discord alerts disabled)" }
+        if config.discord_webhook_url.is_some() {
+            "set ✓"
+        } else {
+            "unset  (Discord alerts disabled)"
+        }
     );
     println!(
         "  TELEGRAM_BOT_TOKEN   {}",
-        if config.telegram_bot_token.is_some() { "set ✓" } else { "unset  (Telegram alerts disabled)" }
+        if config.telegram_bot_token.is_some() {
+            "set ✓"
+        } else {
+            "unset  (Telegram alerts disabled)"
+        }
     );
-    println!(
-        "  REDIS_URL            {}",
-        config.redis_url
-    );
+    println!("  REDIS_URL            {}", config.redis_url);
 
     // ── Routes ────────────────────────────────────────────────────────────────
     println!("\n── live routes (serve mode) ────────────────────────────────");

@@ -577,12 +577,19 @@ async function load() {
       document.getElementById('loading').classList.add('gone');
       const t = new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
       document.getElementById('rtxt').textContent = `⟳ ${t}`;
+    } else {
+      // Empty array returned — no data yet, still dismiss loading
+      document.getElementById('loading').classList.add('gone');
+      document.getElementById('rtxt').textContent = '⟳ no data';
     }
   } catch(e) {
+    document.getElementById('loading').classList.add('gone');
     const el = document.querySelector('.ltxt');
     if (el) el.textContent = `ERROR: ${e.message}`;
   }
 }
+// Safety net: always dismiss loading after 20 seconds no matter what
+setTimeout(() => document.getElementById('loading').classList.add('gone'), 20_000);
 load();
 setInterval(load, 60_000);
 </script>
