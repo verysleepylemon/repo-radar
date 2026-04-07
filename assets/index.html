@@ -359,6 +359,9 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
       <button class="tab-btn" data-tab="twitter" onclick="switchTab('twitter')">🐦 Twitter <span class="tab-cnt" id="cnt-twitter">…</span></button>
       <button class="tab-btn" data-tab="reddit" onclick="switchTab('reddit')">🔴 Reddit <span class="tab-cnt" id="cnt-reddit">…</span></button>
       <button class="tab-btn" data-tab="pulse" onclick="switchTab('pulse')">📊 Topic Pulse <span class="tab-cnt" id="cnt-pulse" style="background:rgba(88,166,255,.12);color:var(--blue)">44</span></button>
+      <button class="tab-btn" data-tab="newsmap" onclick="switchTab('newsmap')">🗺️ Tech Map <span class="tab-cnt" id="cnt-newsmap">…</span></button>
+      <button class="tab-btn" data-tab="fusion" onclick="switchTab('fusion')">🔬 Signal Fusion</button>
+      <button class="tab-btn" data-tab="hunt" onclick="switchTab('hunt')">🕵️ Social Hunt</button>
     </div>
     <div class="gh-nav-r">
       <span class="gh-time">↺ <strong><span id="cd">60</span>s</strong> &nbsp;·&nbsp; <span id="ts">loading…</span></span>
@@ -433,6 +436,80 @@ button { cursor: pointer; font-family: inherit; font-size: 12px; }
         <div class="race-stage" id="race-stage"></div>
       </div>
     </div>
+
+    <!-- Tech News Map -->
+    <div id="tab-newsmap" class="tab-panel">
+      <div class="list-hdr">
+        <span>🗺️</span><h2>Tech News Map</h2>
+        <span class="list-cnt-b" id="cnt-newsmap-h">…</span>
+        <span class="list-src">HN · Reddit · geo-tagged · TV/entertainment filtered</span>
+        <label style="margin-left:auto;font-size:.8rem;color:var(--fg-s)">
+          <input type="checkbox" id="nm-critical-only" onchange="renderNewsmap()"> Critical only
+        </label>
+      </div>
+      <div id="newsmap-wrap" style="position:relative;width:100%;aspect-ratio:2/1;background:var(--bg-s);border-radius:8px;overflow:hidden;margin-top:8px">
+        <img id="nm-base" src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/World_map_-_low_resolution.svg/1280px-World_map_-_low_resolution.svg.png"
+             style="width:100%;height:100%;object-fit:fill;opacity:.35;pointer-events:none" alt="world map"/>
+        <div id="nm-dots" style="position:absolute;inset:0"></div>
+      </div>
+      <div id="nm-legend" style="display:flex;gap:16px;margin-top:6px;font-size:.75rem;color:var(--fg-s)">
+        <span><span style="color:#f85149">●</span> Critical</span>
+        <span><span style="color:#58a6ff">●</span> Normal</span>
+      </div>
+    </div>
+
+    <!-- Signal Fusion -->
+    <div id="tab-fusion" class="tab-panel">
+      <div class="list-hdr"><span>🔬</span><h2>Signal Fusion</h2>
+        <span class="list-src">HN × 3 · GitHub × 1.5 · Reddit × 1 — multi-source intelligence</span>
+      </div>
+      <div style="display:flex;gap:8px;margin:12px 0 16px">
+        <input id="fusion-input" class="fusion-inp" placeholder="Enter topic e.g. 'LLM inference'" value="AI safety"
+               onkeydown="if(event.key==='Enter')runFusion()" style="flex:1;padding:8px 12px;background:var(--bg-s);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:.9rem"/>
+        <button onclick="runFusion()" style="padding:8px 18px;background:var(--yellow);color:#0d1117;border:none;border-radius:6px;cursor:pointer;font-weight:600">Fuse ⚡</button>
+      </div>
+      <div id="fusion-meters" style="display:none;margin-bottom:20px">
+        <div style="font-size:.8rem;color:var(--fg-s);margin-bottom:10px">Source signal strength</div>
+        <div style="display:grid;grid-template-columns:70px 1fr 40px;gap:4px 8px;align-items:center">
+          <span style="font-size:.8rem">HN</span>
+          <div style="background:var(--bg-s);border-radius:4px;height:8px"><div id="fm-hn" style="height:8px;border-radius:4px;background:#f0a500;transition:width .5s"></div></div>
+          <span id="fm-hn-n" style="font-size:.8rem;text-align:right"></span>
+          <span style="font-size:.8rem">GitHub</span>
+          <div style="background:var(--bg-s);border-radius:4px;height:8px"><div id="fm-gh" style="height:8px;border-radius:4px;background:#58a6ff;transition:width .5s"></div></div>
+          <span id="fm-gh-n" style="font-size:.8rem;text-align:right"></span>
+          <span style="font-size:.8rem">Reddit</span>
+          <div style="background:var(--bg-s);border-radius:4px;height:8px"><div id="fm-rd" style="height:8px;border-radius:4px;background:#ff6e40;transition:width .5s"></div></div>
+          <span id="fm-rd-n" style="font-size:.8rem;text-align:right"></span>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:24px">
+          <div>
+            <div style="font-size:.7rem;color:var(--fg-s);margin-bottom:2px">Fused Score</div>
+            <div id="fm-score" style="font-size:1.6rem;font-weight:700;color:var(--yellow)">--</div>
+          </div>
+          <div>
+            <div style="font-size:.7rem;color:var(--fg-s);margin-bottom:2px">Source Coverage</div>
+            <div id="fm-conf" style="font-size:1.6rem;font-weight:700;color:#58a6ff">--</div>
+          </div>
+        </div>
+      </div>
+      <div id="fusion-list"></div>
+    </div>
+
+    <!-- Social Hunt -->
+    <div id="tab-hunt" class="tab-panel">
+      <div class="list-hdr"><span>🕵️</span><h2>Social Hunt</h2>
+        <span class="list-src">Sherlock-style · checks public profile URLs · OSINT research</span>
+      </div>
+      <div style="display:flex;gap:8px;margin:12px 0 16px">
+        <input id="hunt-input" placeholder="Enter username to search…"
+               onkeydown="if(event.key==='Enter')runHunt()"
+               style="flex:1;padding:8px 12px;background:var(--bg-s);border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:.9rem"/>
+        <button onclick="runHunt()" style="padding:8px 18px;background:var(--blue);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">Hunt 🔍</button>
+      </div>
+      <div id="hunt-status" style="font-size:.8rem;color:var(--fg-s);margin-bottom:10px"></div>
+      <div id="hunt-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px"></div>
+    </div>
+
     <!-- Secrets -->
     <div id="tab-secrets" class="tab-panel">
       <div class="list-hdr"><span>🔑</span><h2>Secret / Key Leaks</h2><span class="list-cnt-b" id="secret-cnt-h">0</span><span class="list-src">GitHub Events · real-time scan · responsible disclosure</span></div>
@@ -995,9 +1072,113 @@ function loadRanking() {
   }
 }
 
-function doRefresh() {
+// ── Tech News Map ──────────────────────────────────────────────────
+let _newsmapData = [];
+async function loadNewsmap() {
+  try {
+    const data = await fetch('/api/newsmap').then(r => r.json());
+    _newsmapData = data;
+    document.getElementById('cnt-newsmap').textContent = data.length;
+    document.getElementById('cnt-newsmap-h').textContent = data.length + ' stories';
+    renderNewsmap();
+  } catch(e) {}
+}
+
+function renderNewsmap() {
+  const critOnly = document.getElementById('nm-critical-only')?.checked;
+  const dots = document.getElementById('nm-dots');
+  if (!dots) return;
+  dots.innerHTML = '';
+  const items = critOnly ? _newsmapData.filter(x => x.tier === 'critical') : _newsmapData;
+  items.forEach(item => {
+    // Equirectangular projection: x = (lng+180)/360, y = (90-lat)/180
+    const x = ((item.lng + 180) / 360 * 100).toFixed(2);
+    const y = ((90 - item.lat) / 180 * 100).toFixed(2);
+    const color = item.tier === 'critical' ? '#f85149' : '#58a6ff';
+    const dot = document.createElement('div');
+    dot.title = `${item.title}\n${item.source} · ${item.country}`;
+    dot.style.cssText = `position:absolute;left:${x}%;top:${y}%;width:10px;height:10px;border-radius:50%;background:${color};transform:translate(-50%,-50%);cursor:pointer;opacity:.85;transition:transform .15s;border:1px solid rgba(255,255,255,.2)`;
+    dot.onmouseenter = () => { dot.style.transform = 'translate(-50%,-50%) scale(1.8)'; dot.style.zIndex = '10'; };
+    dot.onmouseleave = () => { dot.style.transform = 'translate(-50%,-50%) scale(1)'; dot.style.zIndex = ''; };
+    dot.onclick = () => window.open(item.url, '_blank', 'noopener');
+    dots.appendChild(dot);
+  });
+}
+
+// ── Signal Fusion ──────────────────────────────────────────────────
+async function runFusion() {
+  const topic = (document.getElementById('fusion-input').value || '').trim();
+  if (!topic) return;
+  const list = document.getElementById('fusion-list');
+  const meters = document.getElementById('fusion-meters');
+  list.innerHTML = '<div class="gh-loading"><div class="gh-spin"></div>Fusing signals…</div>';
+  meters.style.display = 'none';
+  try {
+    const data = await fetch('/api/fusion?topic=' + encodeURIComponent(topic)).then(r => r.json());
+    const maxHits = Math.max(data.hn_hits, data.github_hits, data.reddit_hits, 1);
+    document.getElementById('fm-hn').style.width  = (data.hn_hits     / maxHits * 100) + '%';
+    document.getElementById('fm-gh').style.width  = (data.github_hits / maxHits * 100) + '%';
+    document.getElementById('fm-rd').style.width  = (data.reddit_hits / maxHits * 100) + '%';
+    document.getElementById('fm-hn-n').textContent  = data.hn_hits;
+    document.getElementById('fm-gh-n').textContent  = data.github_hits;
+    document.getElementById('fm-rd-n').textContent  = data.reddit_hits;
+    document.getElementById('fm-score').textContent = data.fused_score.toFixed(1);
+    document.getElementById('fm-conf').textContent  = data.confidence.toFixed(0) + '%';
+    meters.style.display = '';
+    if (!data.items.length) { list.innerHTML = '<div style="color:var(--fg-s);padding:16px">No results found for this topic.</div>'; return; }
+    list.innerHTML = '<div style="font-size:.8rem;color:var(--fg-s);margin-bottom:8px">Top items by fused score</div>' +
+      data.items.map(item => {
+        const srcColor = item.source === 'HackerNews' ? '#f0a500' : item.source === 'GitHub' ? '#58a6ff' : '#ff6e40';
+        return `<div class="item-row" onclick="window.open('${E(item.url)}','_blank','noopener')" style="cursor:pointer">
+          <div class="item-main">
+            <span class="list-badge" style="background:${srcColor}22;color:${srcColor}">${E(item.source)}</span>
+            <span class="item-title">${E(item.title)}</span>
+          </div>
+          <div class="item-sub" style="margin-top:2px;font-size:.75rem;color:var(--fg-s)">score ${item.raw_score.toFixed(1)}</div>
+        </div>`;
+      }).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:#f85149;padding:16px">Error: ' + e.message + '</div>';
+  }
+}
+
+// ── Social Hunt ────────────────────────────────────────────────────
+async function runHunt() {
+  const username = (document.getElementById('hunt-input').value || '').trim();
+  if (!username) return;
+  const grid = document.getElementById('hunt-grid');
+  const status = document.getElementById('hunt-status');
+  grid.innerHTML = '';
+  status.textContent = 'Hunting across ' + 22 + ' platforms… (may take up to 5s)';
+  try {
+    const data = await fetch('/api/hunt/' + encodeURIComponent(username)).then(r => r.json());
+    const found = data.filter(x => x.found).length;
+    status.textContent = `Found ${found} of ${data.length} platforms for @${username}`;
+    grid.innerHTML = data.map(hit => {
+      const bg = hit.found ? 'rgba(63,185,80,.12)' : 'rgba(255,255,255,.03)';
+      const border = hit.found ? '#3fb950' : 'var(--border)';
+      const check = hit.found ? '✓' : '✗';
+      const checkColor = hit.found ? '#3fb950' : '#6e7681';
+      const clickable = hit.found ? `onclick="window.open('${E(hit.url)}','_blank','noopener')" style="cursor:pointer"` : '';
+      return `<div class="hunt-card" ${clickable}
+        style="background:${bg};border:1px solid ${border};border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;transition:opacity .2s;opacity:${hit.found?1:.45}">
+        <span style="font-size:1.2rem">${hit.icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.85rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${E(hit.platform)}</div>
+          ${hit.found ? `<div style="font-size:.7rem;color:#3fb950;margin-top:1px">Profile found</div>` : ''}
+        </div>
+        <span style="font-size:1rem;font-weight:700;color:${checkColor}">${check}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+  }
+}
+
+
   resetCD(); clearDetail();
   loadRanking();
+  loadNewsmap();
   Promise.all([loadLeaks(), loadVip(), loadTrending(), loadAlerts(), loadSecrets(), loadFeed(), loadGhost(), loadTwitter(), loadReddit()])
     .then(() => { document.getElementById('ts').textContent = new Date().toLocaleTimeString(); });
 }

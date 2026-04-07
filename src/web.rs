@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use axum::{
-    extract::State,
+    extract::{Path, Query, State},
     response::{Html, Json},
     routing::get,
     Router,
@@ -154,6 +154,7 @@ pub struct WebState {
     ghost_cache: Cache<Vec<GhostRepo>>,
     twitter_cache: Cache<Vec<VipItem>>,
     reddit_cache: Cache<Vec<VipItem>>,
+    newsmap_cache: Cache<Vec<NewsMapItem>>,
 }
 
 impl WebState {
@@ -184,6 +185,7 @@ impl WebState {
             ghost_cache: Arc::new(RwLock::new(None)),
             twitter_cache: Arc::new(RwLock::new(None)),
             reddit_cache: Arc::new(RwLock::new(None)),
+            newsmap_cache: Arc::new(RwLock::new(None)),
         }
     }
 }
@@ -216,6 +218,50 @@ pub struct WorldFeedItem {
     pub tier: String,
     pub tags: Vec<String>,
 }
+/// A geolocated, tech-filtered news item for the News Map view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewsMapItem {
+    pub title: String,
+    pub url: String,
+    pub source: String,
+    pub lat: f64,
+    pub lng: f64,
+    pub country: String,
+    pub tier: String,
+    pub time: Option<i64>,
+    pub score: Option<u32>,
+}
+
+/// One item returned by the signal-fusion engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FusionItem {
+    pub title: String,
+    pub url: String,
+    pub source: String,
+    pub raw_score: f64,
+}
+
+/// Aggregated multi-source fusion result for a search topic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FusionResult {
+    pub topic: String,
+    pub hn_hits: u32,
+    pub github_hits: u32,
+    pub reddit_hits: u32,
+    pub fused_score: f64,
+    pub confidence: f64,
+    pub items: Vec<FusionItem>,
+}
+
+/// One platform result from the social OSINT hunt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SocialHit {
+    pub platform: String,
+    pub url: String,
+    pub found: bool,
+    pub icon: String,
+}
+
 /// A GitHub repo with many stars but very few commits — classic leak/dump profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GhostRepo {
@@ -1408,6 +1454,391 @@ async fn fetch_world_feed(http: &reqwest::Client) -> Result<Vec<WorldFeedItem>> 
     Ok(items)
 }
 
+// ─── helper: TV/entertainment noise filter ────────────────────────────────────
+
+/// Return `false` for TV / entertainment noise so the map stays tech-only.
+fn is_tech_relevant(text: &str) -> bool {
+    let lo = text.to_lowercase();
+    const NOISE: &[&str] = &[
+        "netflix", "hbo max", "disney+", "hulu", "peacock", "paramount+",
+        "prime video", "apple tv+", " tv show", "television show", " new season",
+        "season finale", " episode ", "box office", "movie review", "film review",
+        "grammy award", "oscar award", "emmy award", "golden globe", "bafta",
+        "kardashian", "music video", "album drop", "chart-topping",
+        "nfl draft", "nba trade", "fifa world cup", "super bowl",
+        "reality show", "talk show", "soap opera",
+    ];
+    !NOISE.iter().any(|kw| lo.contains(kw))
+}
+
+/// Map a news item to approximate lat/lng via a keyword lookup table.
+fn geo_tag(title: &str, url: &str) -> Option<(f64, f64, &'static str)> {
+    let hay = format!("{title} {url}").to_lowercase();
+    const PLACES: &[(&str, f64, f64, &'static str)] = &[
+        // US cities / tech hubs
+        ("silicon valley", 37.4, -122.1, "USA"),
+        ("san francisco",  37.7, -122.4, "USA"),
+        ("new york",       40.7,  -74.0, "USA"),
+        ("seattle",        47.6, -122.3, "USA"),
+        ("boston",         42.4,  -71.1, "USA"),
+        ("austin",         30.3,  -97.7, "USA"),
+        ("washington dc",  38.9,  -77.0, "USA"),
+        ("los angeles",    34.1, -118.2, "USA"),
+        // US companies → SF / Seattle as proxy geo
+        ("openai",     37.7, -122.4, "USA"),
+        ("anthropic",  37.8, -122.4, "USA"),
+        ("google",     37.4, -122.1, "USA"),
+        ("microsoft",  47.6, -122.1, "USA"),
+        ("apple",      37.3, -122.0, "USA"),
+        ("meta ",      37.5, -122.2, "USA"),
+        ("amazon",     47.6, -122.3, "USA"),
+        ("nvidia",     37.4, -122.0, "USA"),
+        ("spacex",     33.9, -118.4, "USA"),
+        ("tesla",      37.4, -122.0, "USA"),
+        // Generic US signals
+        ("united states", 38.0, -97.0, "USA"),
+        ("u.s.",           38.0, -97.0, "USA"),
+        ("american",       38.0, -97.0, "USA"),
+        ("congress",       38.9, -77.0, "USA"),
+        (" nsa ",          39.1, -76.8, "USA"),
+        (" cia ",          38.9, -77.1, "USA"),
+        // UK
+        ("london",        51.5,  -0.1, "UK"),
+        ("united kingdom",51.5,  -0.1, "UK"),
+        ("britain",       51.5,  -2.0, "UK"),
+        ("deepmind",      51.5,  -0.1, "UK"),
+        ("arm holdings",  51.5,  -0.1, "UK"),
+        // Europe
+        ("paris",         48.9,  2.3, "France"),
+        ("berlin",        52.5, 13.4, "Germany"),
+        ("amsterdam",     52.4,  4.9, "Netherlands"),
+        ("stockholm",     59.3, 18.1, "Sweden"),
+        ("brussels",      50.8,  4.4, "Belgium"),
+        ("munich",        48.1, 11.6, "Germany"),
+        ("german",        51.2, 10.5, "Germany"),
+        ("european union",50.8,  4.4, "EU"),
+        ("europe",        50.0, 10.0, "Europe"),
+        // China
+        ("beijing",  39.9, 116.4, "China"),
+        ("shanghai", 31.2, 121.5, "China"),
+        ("alibaba",  30.3, 120.1, "China"),
+        ("tencent",  22.5, 114.1, "China"),
+        ("baidu",    39.9, 116.4, "China"),
+        ("huawei",   22.5, 114.1, "China"),
+        ("china",    35.9, 104.2, "China"),
+        ("chinese",  35.9, 104.2, "China"),
+        // Japan / Korea
+        ("tokyo",    35.7, 139.7, "Japan"),
+        ("japan",    36.2, 138.3, "Japan"),
+        ("sony",     35.7, 139.7, "Japan"),
+        ("softbank", 35.7, 139.7, "Japan"),
+        ("seoul",    37.6, 127.0, "S.Korea"),
+        ("samsung",  37.5, 127.0, "S.Korea"),
+        ("korea",    36.0, 128.0, "S.Korea"),
+        // India
+        ("india",     20.6,  79.1, "India"),
+        ("bangalore", 12.9,  77.6, "India"),
+        ("mumbai",    19.1,  72.9, "India"),
+        // Singapore / Taiwan / Australia
+        ("singapore", 1.4,  103.8, "Singapore"),
+        ("taiwan",   23.7,  121.0, "Taiwan"),
+        ("tsmc",     24.8,  120.9, "Taiwan"),
+        ("australia",-25.3, 133.8, "Australia"),
+        ("sydney",   -33.9, 151.2, "Australia"),
+        // Middle East
+        ("israel",   31.5,  34.8, "Israel"),
+        ("tel aviv", 32.1,  34.8, "Israel"),
+        ("saudi",    24.7,  46.7, "Saudi Arabia"),
+        // Americas
+        ("canada",  56.1, -106.3, "Canada"),
+        ("toronto", 43.7,  -79.4, "Canada"),
+        ("brazil", -14.2,  -51.9, "Brazil"),
+        ("mexico",  23.6, -102.6, "Mexico"),
+    ];
+    for &(kw, lat, lng, country) in PLACES {
+        if hay.contains(kw) {
+            return Some((lat, lng, country));
+        }
+    }
+    None
+}
+
+// ─── /api/newsmap ─────────────────────────────────────────────────────────────
+
+async fn api_newsmap(State(s): State<Arc<WebState>>) -> Json<Vec<NewsMapItem>> {
+    const TTL: Duration = Duration::from_secs(120);
+    {
+        let c = s.newsmap_cache.read().await;
+        if let Some((at, ref data)) = *c {
+            if at.elapsed() < TTL {
+                return Json(data.clone());
+            }
+        }
+    }
+    let feed = fetch_world_feed(&s.http).await.unwrap_or_default();
+    let items: Vec<NewsMapItem> = feed
+        .into_iter()
+        .filter(|item| is_tech_relevant(&item.title))
+        .filter_map(|item| {
+            geo_tag(&item.title, &item.url).map(|(lat, lng, country)| NewsMapItem {
+                title: item.title,
+                url: item.url,
+                source: item.source,
+                lat,
+                lng,
+                country: country.to_string(),
+                tier: item.tier,
+                time: item.time,
+                score: item.score,
+            })
+        })
+        .collect();
+    *s.newsmap_cache.write().await = Some((Instant::now(), items.clone()));
+    Json(items)
+}
+
+// ─── /api/fusion?topic= ───────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct FusionQuery {
+    topic: Option<String>,
+}
+
+async fn api_fusion(
+    State(s): State<Arc<WebState>>,
+    Query(q): Query<FusionQuery>,
+) -> Json<FusionResult> {
+    let topic = q
+        .topic
+        .unwrap_or_else(|| "AI".to_string())
+        .chars()
+        .take(80)
+        .collect::<String>();
+
+    let (hn_res, gh_res, rd_res) = tokio::join!(
+        fetch_hn_fusion(&s.http, &topic),
+        fetch_github_fusion(&s.http, &topic),
+        fetch_reddit_fusion(&s.http, &topic),
+    );
+
+    let mut all_items: Vec<FusionItem> = Vec::new();
+    let mut hn_hits = 0u32;
+    let mut github_hits = 0u32;
+    let mut reddit_hits = 0u32;
+
+    if let Ok(items) = hn_res {
+        hn_hits = items.len() as u32;
+        all_items.extend(items);
+    }
+    if let Ok(items) = gh_res {
+        github_hits = items.len() as u32;
+        all_items.extend(items);
+    }
+    if let Ok(items) = rd_res {
+        reddit_hits = items.len() as u32;
+        all_items.extend(items);
+    }
+
+    all_items.sort_by(|a, b| {
+        b.raw_score
+            .partial_cmp(&a.raw_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    all_items.truncate(20);
+
+    let total = (hn_hits + github_hits + reddit_hits) as f64;
+    let fused_score = if total == 0.0 {
+        0.0
+    } else {
+        (hn_hits as f64 * 3.0 + github_hits as f64 * 1.5 + reddit_hits as f64 * 1.0)
+            / (total * 3.0)
+            * 100.0
+    };
+    let sources_active = [hn_hits, github_hits, reddit_hits]
+        .iter()
+        .filter(|&&x| x > 0)
+        .count() as f64;
+    let confidence = (sources_active / 3.0) * 100.0;
+
+    Json(FusionResult {
+        topic,
+        hn_hits,
+        github_hits,
+        reddit_hits,
+        fused_score,
+        confidence,
+        items: all_items,
+    })
+}
+
+async fn fetch_hn_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<FusionItem>> {
+    let day_ago = Utc::now().timestamp() - 86400 * 7;
+    let resp = http
+        .get("https://hn.algolia.com/api/v1/search")
+        .query(&[
+            ("query", topic),
+            ("tags", "story"),
+            ("hitsPerPage", "15"),
+            ("numericFilters", &format!("created_at_i>{day_ago}")),
+        ])
+        .send()
+        .await?;
+    let data: serde_json::Value = resp.json().await?;
+    let items = data["hits"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|h| {
+            let title = h["title"].as_str()?.to_string();
+            let url = h["url"].as_str().unwrap_or("").to_string();
+            let hn_id = h["objectID"].as_str().unwrap_or("").to_string();
+            let score = h["points"].as_f64().unwrap_or(0.0);
+            Some(FusionItem {
+                title,
+                url: if url.is_empty() {
+                    format!("https://news.ycombinator.com/item?id={hn_id}")
+                } else {
+                    url
+                },
+                source: "HackerNews".into(),
+                raw_score: score * 3.0,
+            })
+        })
+        .collect();
+    Ok(items)
+}
+
+async fn fetch_github_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<FusionItem>> {
+    let resp = http
+        .get("https://api.github.com/search/repositories")
+        .query(&[("q", topic), ("sort", "stars"), ("per_page", "10")])
+        .header("User-Agent", "repo-radar/1.0")
+        .send()
+        .await?;
+    let data: serde_json::Value = resp.json().await?;
+    let items = data["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|r| {
+            let name = r["full_name"].as_str()?.to_string();
+            let url = r["html_url"].as_str()?.to_string();
+            let stars = r["stargazers_count"].as_f64().unwrap_or(0.0);
+            let desc = r["description"].as_str().unwrap_or("").to_string();
+            Some(FusionItem {
+                title: format!("{name} — {desc}").chars().take(120).collect(),
+                url,
+                source: "GitHub".into(),
+                raw_score: stars.ln_1p() * 1.5,
+            })
+        })
+        .collect();
+    Ok(items)
+}
+
+async fn fetch_reddit_fusion(http: &reqwest::Client, topic: &str) -> Result<Vec<FusionItem>> {
+    let resp = http
+        .get("https://www.reddit.com/search.json")
+        .query(&[("q", topic), ("sort", "top"), ("t", "week"), ("limit", "10")])
+        .header("User-Agent", "repo-radar/1.0 fusion-engine")
+        .send()
+        .await?;
+    let data: serde_json::Value = resp.json().await?;
+    let items = data["data"]["children"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| {
+            let d = p["data"].clone();
+            let title = d["title"].as_str()?.to_string();
+            let score = d["score"].as_f64().unwrap_or(0.0);
+            let permalink = d["permalink"].as_str().unwrap_or("").to_string();
+            let ext_url = d["url"].as_str().unwrap_or("").to_string();
+            let url = if ext_url.starts_with("http") {
+                ext_url
+            } else {
+                format!("https://reddit.com{permalink}")
+            };
+            Some(FusionItem {
+                title,
+                url,
+                source: "Reddit".into(),
+                raw_score: score,
+            })
+        })
+        .collect();
+    Ok(items)
+}
+
+// ─── /api/hunt/:username ──────────────────────────────────────────────────────
+
+async fn api_hunt(
+    State(s): State<Arc<WebState>>,
+    Path(username): Path<String>,
+) -> Json<Vec<SocialHit>> {
+    // Sanitise: alphanumeric, _, -, . only
+    let clean: String = username
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        .take(50)
+        .collect();
+    if clean.is_empty() {
+        return Json(vec![]);
+    }
+
+    const PLATFORMS: &[(&str, &str, &str)] = &[
+        ("GitHub",        "https://github.com/{}",                   "⬛"),
+        ("npm",           "https://www.npmjs.com/~{}",               "📦"),
+        ("PyPI",          "https://pypi.org/user/{}/",               "🐍"),
+        ("DEV.to",        "https://dev.to/{}",                       "🧑‍💻"),
+        ("Medium",        "https://medium.com/@{}",                  "📝"),
+        ("Reddit",        "https://www.reddit.com/user/{}/",         "🔴"),
+        ("HackerNews",    "https://news.ycombinator.com/user?id={}","🟠"),
+        ("Keybase",       "https://keybase.io/{}",                   "🔑"),
+        ("GitLab",        "https://gitlab.com/{}",                   "🦊"),
+        ("Codeberg",      "https://codeberg.org/{}",                 "🧊"),
+        ("SourceHut",     "https://sr.ht/~{}/",                      "🌸"),
+        ("crates.io",     "https://crates.io/users/{}",              "🦀"),
+        ("Docker Hub",    "https://hub.docker.com/u/{}/",            "🐳"),
+        ("Replit",        "https://replit.com/@{}",                  "♻️"),
+        ("Kaggle",        "https://www.kaggle.com/{}",               "📊"),
+        ("Mastodon",      "https://mastodon.social/@{}",             "🐘"),
+        ("Lobste.rs",     "https://lobste.rs/u/{}",                  "🦞"),
+        ("CodePen",       "https://codepen.io/{}",                   "✏️"),
+        ("Hashnode",      "https://hashnode.com/@{}",                "📰"),
+        ("Speakerdeck",   "https://speakerdeck.com/{}",              "🎤"),
+        ("Twitch",        "https://www.twitch.tv/{}",                "🎮"),
+        ("YouTube",       "https://www.youtube.com/@{}",             "▶️"),
+    ];
+
+    let futs: Vec<_> = PLATFORMS
+        .iter()
+        .map(|&(name, url_tpl, icon)| {
+            let url = url_tpl.replace("{}", &clean);
+            let http = s.http.clone();
+            async move {
+                let result = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    http.head(&url).send(),
+                )
+                .await;
+                let found = matches!(result, Ok(Ok(ref r)) if r.status().is_success());
+                SocialHit {
+                    platform: name.to_string(),
+                    url,
+                    found,
+                    icon: icon.to_string(),
+                }
+            }
+        })
+        .collect();
+
+    Json(futures::future::join_all(futs).await)
+}
+
 // ─── Server startup ───────────────────────────────────────────────────────────
 
 /// Start the HTTP server.  Blocks until the server exits.
@@ -1431,6 +1862,9 @@ pub async fn start_server(
         .route("/api/twitter", get(api_twitter))
         .route("/api/reddit", get(api_reddit))
         .route("/api/secrets", get(api_secrets))
+        .route("/api/newsmap", get(api_newsmap))
+        .route("/api/fusion", get(api_fusion))
+        .route("/api/hunt/:username", get(api_hunt))
         .with_state(state)
         .layer(CorsLayer::permissive());
 
