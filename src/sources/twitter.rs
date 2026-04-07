@@ -54,11 +54,7 @@ impl TwitterSource {
     pub async fn search_tech_trending(&self, min_engagement: u64) -> Result<Vec<Tweet>> {
         let mut tweets = read_twikit_cache().await?;
         tweets.retain(|t| t.public_metrics.engagement() >= min_engagement);
-        tweets.sort_by(|a, b| {
-            b.public_metrics
-                .engagement()
-                .cmp(&a.public_metrics.engagement())
-        });
+        tweets.sort_by_key(|t| std::cmp::Reverse(t.public_metrics.engagement()));
         Ok(tweets)
     }
 

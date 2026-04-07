@@ -910,7 +910,7 @@ async fn fetch_twitter_viral() -> Result<Vec<VipItem>> {
             }
         })
         .collect();
-    items.sort_by(|a, b| b.score.cmp(&a.score));
+    items.sort_by_key(|x| std::cmp::Reverse(x.score));
     items.truncate(50);
     Ok(items)
 }
@@ -984,7 +984,7 @@ async fn fetch_reddit_viral(http: &reqwest::Client) -> Result<Vec<VipItem>> {
     let mut seen = std::collections::HashSet::new();
     items.retain(|it| seen.insert(it.url.clone()));
     // Sort by upvote score descending
-    items.sort_by(|a, b| b.score.cmp(&a.score));
+    items.sort_by_key(|x| std::cmp::Reverse(x.score));
     items.truncate(80);
     Ok(items)
 }
