@@ -41,6 +41,7 @@ $n.Visible = $false"#,
 
 /// Strip or replace only characters that break PowerShell single-quoted strings, then truncate.
 /// Because we use -EncodedCommand (UTF-16LE Base64), full Unicode (emoji etc.) is fine.
+#[cfg(target_os = "windows")]
 fn sanitize(s: &str, max_chars: usize) -> String {
     s.chars()
         .filter(|c| !matches!(c, '\x00'..='\x08' | '\x0B' | '\x0C' | '\x0E'..='\x1F'))
@@ -54,6 +55,7 @@ fn sanitize(s: &str, max_chars: usize) -> String {
 }
 
 /// Minimal Base64 encoder (no external crate needed).
+#[cfg(target_os = "windows")]
 fn base64_encode(input: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
